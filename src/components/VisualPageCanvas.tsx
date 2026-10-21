@@ -1,9 +1,19 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { PageInfo, SignaturePlacement, ProcessedSignature } from '../types';
-import { Move, Copy, Trash2, ClipboardPaste, Sparkles, Layers } from 'lucide-react';
+import { renderPdfPageToCanvas } from '../utils/pdfRenderer';
+import {
+  Move,
+  Copy,
+  Trash2,
+  Sparkles,
+  RefreshCw,
+  Hand,
+  Maximize2,
+} from 'lucide-react';
 
 interface VisualPageCanvasProps {
   pageInfo: PageInfo;
+  pdfRawBytes?: Uint8Array;
   placements: SignaturePlacement[];
   activePlacementId: string | null;
   signature: ProcessedSignature | null;
@@ -17,6 +27,7 @@ interface VisualPageCanvasProps {
 
 export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
   pageInfo,
+  pdfRawBytes,
   placements,
   activePlacementId,
   signature,
@@ -28,8 +39,12 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
   onApplyToAllPages,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
+
   const [scale, setScale] = useState<number>(1);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isPdfRendering, setIsPdfRendering] = useState<boolean>(false);
+  const [renderError, setRenderError] = useState<string | null>(null);
+
   const [dragState, setDragState] = useState<{
     placementId: string;
     isDragging: boolean;
@@ -47,9 +62,9 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     const updateScale = () => {
       if (!containerRef.current) return;
       const containerWidth = containerRef.current.clientWidth;
-      const availableW = Math.max(260, containerWidth - 32);
+      const availableW = Math.max(300, containerWidth - 24);
       const computedScale = availableW / pageInfo.width;
-      setScale(Math.min(1.1, Math.max(0.35, computedScale)));
+      setScale(Math.min(1.4, Math.max(0.4, computedScale)));
     };
 
     updateScale();
@@ -57,24 +72,55 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     return () => window.removeEventListener('resize', updateScale);
   }, [pageInfo.width]);
 
+  // Render REAL PDF content onto canvas whenever page or pdf changes
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadPdfContent() {
+      if (!pdfRawBytes || !pdfCanvasRef.current) return;
+      setIsPdfRendering(true);
+      setRenderError(null);
+
+      try {
+        const targetW = Math.round(pageInfo.width * scale * window.devicePixelRatio);
+        await renderPdfPageToCanvas(
+          pdfRawBytes,
+          pageInfo.pageNumber,
+          pdfCanvasRef.current,
+          targetW
+        );
+      } catch (err: any) {
+        if (!isCancelled) {
+          console.warn('PDF page render error, falling back:', err);
+          setRenderError(err.message || 'Render issue');
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsPdfRendering(false);
+        }
+      }
+    }
+
+    loadPdfContent();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [pdfRawBytes, pageInfo.pageNumber, pageInfo.width, scale]);
+
   // Keyboard shortcut listener: Ctrl+C, Ctrl+V, Delete
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
         if (activePlacementId) {
           e.preventDefault();
-          setCopiedId(activePlacementId);
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
-        if (copiedId || activePlacementId) {
+        if (activePlacementId && onDuplicatePlacement) {
           e.preventDefault();
-          const sourceId = copiedId || activePlacementId;
-          if (sourceId && onDuplicatePlacement) {
-            onDuplicatePlacement(sourceId);
-          }
+          onDuplicatePlacement(activePlacementId);
         }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        // If not typing in an input
         if (
           document.activeElement?.tagName !== 'INPUT' &&
           document.activeElement?.tagName !== 'TEXTAREA' &&
@@ -90,7 +136,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activePlacementId, copiedId, onDuplicatePlacement, onRemovePlacement, placements.length]);
+  }, [activePlacementId, onDuplicatePlacement, onRemovePlacement, placements.length]);
 
   // Filter placements belonging to this page
   const pagePlacements = placements.filter((p) => p.pageNumber === pageInfo.pageNumber);
@@ -181,7 +227,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     };
   }, [dragState, scale, pageInfo, placements, signature, onUpdatePlacement]);
 
-  // Click on page background to position or paste
+  // Click directly on real document to drop or move signature
   const handlePageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (dragState) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -191,7 +237,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     const clickPtX = Math.round(clickXScreen / scale);
     const clickPtYScreen = Math.round(clickYScreen / scale);
 
-    // If an active placement is already on this page, move it to click location
+    // If active placement exists on this page, move it directly to click point
     if (activePlacementId) {
       const active = placements.find((p) => p.id === activePlacementId && p.pageNumber === pageInfo.pageNumber);
       if (active) {
@@ -211,7 +257,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
       }
     }
 
-    // Otherwise paste/add new placement at this exact point!
+    // Otherwise drop/paste a new signature placement right at this clicked coordinate!
     onAddPlacementAtCoords(clickPtX, clickPtYScreen);
   };
 
@@ -220,72 +266,53 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
 
   return (
     <div ref={containerRef} className="w-full flex flex-col items-center select-none">
-      {/* On-Canvas Quick Actions Bar */}
-      <div className="w-full flex items-center justify-between pb-2 mb-2 text-xs">
-        <span className="text-slate-600 font-medium flex items-center gap-1">
-          <ClipboardPaste className="w-3.5 h-3.5 text-blue-600" />
-          <span>Click anywhere on page to paste signature (ক্লিক কৰি পেষ্ট কৰক)</span>
-        </span>
+      {/* On-Canvas Guide Header */}
+      <div className="w-full max-w-2xl bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-3 py-2 mb-3 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-1.5 font-medium">
+          <Hand className="w-4 h-4 text-blue-600 shrink-0" />
+          <span>
+            <strong>হাত বা মাউচেৰে ক্লিক কৰক:</strong> PDF খনৰ যিকোনো ঠাইত ক্লিক কৰিলেই তাত চহী বহি যাব আৰু ড্ৰেগ কৰিব পাৰিব!
+          </span>
+        </div>
 
-        {activePlacementId && (
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => {
-                setCopiedId(activePlacementId);
-                if (onDuplicatePlacement) onDuplicatePlacement(activePlacementId);
-              }}
-              className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded font-medium transition-colors text-[11px]"
-            >
-              <Copy className="w-3 h-3" />
-              <span>Copy & Paste Here</span>
-            </button>
-            {onApplyToAllPages && (
-              <button
-                type="button"
-                onClick={() => onApplyToAllPages(activePlacementId)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded font-medium transition-colors text-[11px]"
-              >
-                <Sparkles className="w-3 h-3 text-amber-500" />
-                <span>Paste on All Pages</span>
-              </button>
-            )}
-          </div>
+        {activePlacementId && onDuplicatePlacement && (
+          <button
+            type="button"
+            onClick={() => onDuplicatePlacement(activePlacementId)}
+            className="px-2.5 py-1 bg-blue-600 text-white rounded text-[11px] font-semibold hover:bg-blue-700 transition-colors shadow-2xs shrink-0 ml-2"
+          >
+            + Paste Duplicate
+          </button>
         )}
       </div>
 
-      {/* Visual Canvas Frame */}
+      {/* Real PDF Canvas Document Frame */}
       <div
-        className="relative bg-white shadow-md border border-slate-300 rounded-sm overflow-hidden transition-shadow hover:shadow-lg cursor-crosshair"
+        className="relative bg-white shadow-xl border border-slate-300 rounded-xs overflow-hidden transition-shadow hover:shadow-2xl cursor-crosshair"
         style={{
           width: `${canvasWidthPx}px`,
           height: `${canvasHeightPx}px`,
         }}
         onClick={handlePageClick}
       >
-        {/* Document Simulation Mock Lines */}
-        <div className="absolute inset-0 p-8 pointer-events-none opacity-25 flex flex-col justify-between">
-          <div className="space-y-3">
-            <div className="h-4 bg-slate-300 rounded w-1/3 mb-4" />
-            <div className="h-2 bg-slate-200 rounded w-full" />
-            <div className="h-2 bg-slate-200 rounded w-11/12" />
-            <div className="h-2 bg-slate-200 rounded w-4/5" />
-            <div className="h-2 bg-slate-200 rounded w-full" />
-          </div>
+        {/* Real PDF Rendered Canvas */}
+        <canvas
+          ref={pdfCanvasRef}
+          className="w-full h-full object-contain pointer-events-none block"
+          style={{ width: `${canvasWidthPx}px`, height: `${canvasHeightPx}px` }}
+        />
 
-          <div className="space-y-2">
-            <div className="h-2 bg-slate-200 rounded w-full" />
-            <div className="h-2 bg-slate-200 rounded w-5/6" />
-            <div className="h-2 bg-slate-200 rounded w-2/3" />
+        {/* Loading Spinner */}
+        {isPdfRendering && (
+          <div className="absolute inset-0 bg-white/70 backdrop-blur-[1px] flex flex-col items-center justify-center gap-2 z-10">
+            <RefreshCw className="w-6 h-6 text-blue-600 animate-spin" />
+            <span className="text-xs font-semibold text-slate-700">
+              Rendering PDF Page {pageInfo.pageNumber}...
+            </span>
           </div>
+        )}
 
-          <div className="border-t border-slate-200 pt-3 flex justify-between items-center text-[10px] text-slate-400">
-            <span>Page {pageInfo.pageNumber}</span>
-            <span>{pageInfo.width} × {pageInfo.height} pt</span>
-          </div>
-        </div>
-
-        {/* Placements for this page */}
+        {/* Signature Placements Layer */}
         {pagePlacements.map((placement, index) => {
           const { visualX, visualY, visualW, visualH } = getVisualBox(placement);
           const isActive = placement.id === activePlacementId;
@@ -298,10 +325,10 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
                 onSelectPlacement(placement.id);
               }}
               onPointerDown={(e) => handlePointerDownPlacement(e, placement, false)}
-              className={`absolute cursor-grab active:cursor-grabbing border-2 rounded transition-colors group ${
+              className={`absolute cursor-grab active:cursor-grabbing border-2 rounded transition-colors group z-20 ${
                 isActive
-                  ? 'border-blue-600 bg-blue-500/15 shadow-md ring-2 ring-blue-500/30'
-                  : 'border-slate-500 bg-slate-500/10 hover:border-blue-400 hover:bg-blue-50/20'
+                  ? 'border-blue-600 bg-blue-500/10 shadow-lg ring-2 ring-blue-500/30'
+                  : 'border-blue-500/70 bg-blue-500/5 hover:border-blue-600'
               }`}
               style={{
                 left: `${visualX}px`,
@@ -311,22 +338,21 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
                 touchAction: 'none',
               }}
             >
-              {/* Floating Toolbar above the signature when active */}
+              {/* Floating Toolbar above the signature */}
               {isActive && (
                 <div
-                  className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[11px] font-medium py-0.5 px-2 rounded-md shadow-md flex items-center gap-2 whitespace-nowrap z-20 pointer-events-auto"
+                  className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900/95 text-white text-[11px] font-semibold py-1 px-2 rounded-md shadow-md flex items-center gap-2 whitespace-nowrap z-30 pointer-events-auto"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <button
                     type="button"
                     onClick={() => {
-                      setCopiedId(placement.id);
                       if (onDuplicatePlacement) onDuplicatePlacement(placement.id);
                     }}
                     className="hover:text-blue-300 flex items-center gap-1 transition-colors"
                     title="Copy and paste this signature"
                   >
-                    <Copy className="w-3 h-3" />
+                    <Copy className="w-3 h-3 text-blue-400" />
                     <span>Copy</span>
                   </button>
                   <span className="text-slate-600">|</span>
@@ -335,7 +361,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
                       type="button"
                       onClick={() => onApplyToAllPages(placement.id)}
                       className="hover:text-amber-300 flex items-center gap-1 transition-colors"
-                      title="Paste to all pages"
+                      title="Paste on all pages"
                     >
                       <Sparkles className="w-3 h-3 text-amber-400" />
                       <span>All Pages</span>
@@ -348,9 +374,9 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
                         type="button"
                         onClick={() => onRemovePlacement(placement.id)}
                         className="hover:text-red-400 flex items-center gap-1 transition-colors"
-                        title="Delete"
+                        title="Delete this signature"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className="w-3 h-3 text-red-400" />
                       </button>
                     </>
                   )}
@@ -362,7 +388,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
                 <img
                   src={signature.processedDataUrl}
                   alt="Signature"
-                  className="w-full h-full object-contain pointer-events-none drop-shadow-xs"
+                  className="w-full h-full object-contain pointer-events-none drop-shadow-sm select-none"
                 />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 text-xs font-mono font-medium">
@@ -374,19 +400,19 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
               {/* Resize Handle (Bottom-Right corner) */}
               <div
                 onPointerDown={(e) => handlePointerDownPlacement(e, placement, true)}
-                className="absolute -bottom-1.5 -right-1.5 w-4 h-4 bg-white border-2 border-blue-600 rounded-sm shadow-xs cursor-nwse-resize flex items-center justify-center hover:scale-125 transition-transform"
+                className="absolute -bottom-2 -right-2 w-4 h-4 bg-white border-2 border-blue-600 rounded-sm shadow-md cursor-nwse-resize flex items-center justify-center hover:scale-125 transition-transform z-30"
                 title="Drag to resize signature"
               >
-                <div className="w-1 h-1 bg-blue-600 rounded-full" />
+                <div className="w-1.5 h-1.5 bg-blue-600 rounded-xs" />
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Helper guide */}
-      <div className="mt-3 text-xs text-slate-500 text-center max-w-sm">
-        💡 চহীটো ড্ৰেগ কৰি যিকোনো ঠাইলৈ নিব পাৰিব বা <strong>Ctrl+C</strong> আৰু <strong>Ctrl+V</strong> কৰি পেষ্ট কৰিব পাৰিব।
+      {/* Footer Info */}
+      <div className="mt-3 text-xs text-slate-500 text-center max-w-md">
+        💡 আপুনি নিজৰ হাতেৰে চহীটো ড্ৰেগ (Drag) কৰি যিকোনো স্থানত নিব পাৰিব আৰু কোণত ধৰি সৰু-ডাঙৰ কৰিব পাৰিব।
       </div>
     </div>
   );

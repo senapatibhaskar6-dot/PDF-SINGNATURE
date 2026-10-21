@@ -421,8 +421,8 @@ export default function App() {
         ) : (
           /* Split Workspace Layout */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Left Column: Configuration & Controls (7 cols) */}
-            <div className="lg:col-span-7 space-y-6">
+            {/* Left Column: Configuration & Controls (5 cols) */}
+            <div className="lg:col-span-5 space-y-6">
               {/* 1. PDF Document Upload */}
               <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs">
                 <PdfUploader
@@ -477,8 +477,8 @@ export default function App() {
               )}
             </div>
 
-            {/* Right Column: Visual Page Canvas & Multi-Page View (5 cols) */}
-            <div className="lg:col-span-5 space-y-4">
+            {/* Right Column: Visual Page Canvas & Multi-Page View (7 cols) */}
+            <div className="lg:col-span-7 space-y-4">
               <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs flex flex-col">
                 {/* View Switcher & Header */}
                 <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200 flex-wrap gap-2">
@@ -560,6 +560,7 @@ export default function App() {
                   <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex items-center justify-center min-h-[460px]">
                     <VisualPageCanvas
                       pageInfo={activePageInfo}
+                      pdfRawBytes={pdfInfo?.rawBytes}
                       placements={placements}
                       activePlacementId={activePlacementId}
                       signature={signature}
@@ -577,6 +578,7 @@ export default function App() {
                     {pdfInfo && (
                       <AllPagesFlowView
                         pages={pdfInfo.pages}
+                        pdfRawBytes={pdfInfo.rawBytes}
                         placements={placements}
                         activePlacementId={activePlacementId}
                         signature={signature}
