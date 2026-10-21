@@ -1,0 +1,6 @@
+{
+  "name": "SignFlow - Multi-Page PDF Signer",
+  "description": "Upload PDFs and signatures, automatically remove backgrounds, place signatures across multiple pages with custom coordinates, and export signed documents.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
