@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { PageInfo, SignaturePlacement, ProcessedSignature } from '../types';
-import { Move, CornerDownRight, Maximize2, Compass, Layers } from 'lucide-react';
+import { Move, Copy, Trash2, ClipboardPaste, Sparkles, Layers } from 'lucide-react';
 
 interface VisualPageCanvasProps {
   pageInfo: PageInfo;
@@ -10,6 +10,9 @@ interface VisualPageCanvasProps {
   onSelectPlacement: (id: string) => void;
   onUpdatePlacement: (id: string, updates: Partial<SignaturePlacement>) => void;
   onAddPlacementAtCoords: (x: number, y: number) => void;
+  onDuplicatePlacement?: (id: string) => void;
+  onRemovePlacement?: (id: string) => void;
+  onApplyToAllPages?: (id: string) => void;
 }
 
 export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
@@ -20,9 +23,13 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
   onSelectPlacement,
   onUpdatePlacement,
   onAddPlacementAtCoords,
+  onDuplicatePlacement,
+  onRemovePlacement,
+  onApplyToAllPages,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState<number>(1);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [dragState, setDragState] = useState<{
     placementId: string;
     isDragging: boolean;
@@ -40,10 +47,8 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     const updateScale = () => {
       if (!containerRef.current) return;
       const containerWidth = containerRef.current.clientWidth;
-      // Allow padding around the page
       const availableW = Math.max(260, containerWidth - 32);
       const computedScale = availableW / pageInfo.width;
-      // Cap scale between 0.35 and 1.15
       setScale(Math.min(1.1, Math.max(0.35, computedScale)));
     };
 
@@ -51,6 +56,41 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
   }, [pageInfo.width]);
+
+  // Keyboard shortcut listener: Ctrl+C, Ctrl+V, Delete
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        if (activePlacementId) {
+          e.preventDefault();
+          setCopiedId(activePlacementId);
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        if (copiedId || activePlacementId) {
+          e.preventDefault();
+          const sourceId = copiedId || activePlacementId;
+          if (sourceId && onDuplicatePlacement) {
+            onDuplicatePlacement(sourceId);
+          }
+        }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        // If not typing in an input
+        if (
+          document.activeElement?.tagName !== 'INPUT' &&
+          document.activeElement?.tagName !== 'TEXTAREA' &&
+          activePlacementId &&
+          onRemovePlacement &&
+          placements.length > 1
+        ) {
+          e.preventDefault();
+          onRemovePlacement(activePlacementId);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activePlacementId, copiedId, onDuplicatePlacement, onRemovePlacement, placements.length]);
 
   // Filter placements belonging to this page
   const pagePlacements = placements.filter((p) => p.pageNumber === pageInfo.pageNumber);
@@ -61,10 +101,8 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     let visualY = p.y * scale;
 
     if (p.origin === 'bottom-left') {
-      // PDF standard: Y=0 is bottom, so screen Y = (pageHeight - y - height) * scale
       visualY = (pageInfo.height - p.y - p.height) * scale;
     } else {
-      // Top-left standard: Y=0 is top
       visualY = p.y * scale;
     }
 
@@ -113,16 +151,13 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
         let newY = dragState.initialY;
 
         if (placement.origin === 'bottom-left') {
-          // In bottom-left: moving mouse down on screen (positive deltaScreenY) DECREASES PDF Y
           newY = Math.max(0, Math.min(pageInfo.height - placement.height, dragState.initialY - deltaPtY));
         } else {
-          // In top-left: moving mouse down INCREASES screen Y
           newY = Math.max(0, Math.min(pageInfo.height - placement.height, dragState.initialY + deltaPtY));
         }
 
         onUpdatePlacement(placement.id, { x: newX, y: newY });
       } else if (dragState.isResizing) {
-        // Keep aspect ratio if possible
         const aspect = signature?.aspectRatio || (dragState.initialW / Math.max(1, dragState.initialH));
         const newW = Math.max(40, Math.min(pageInfo.width - placement.x, dragState.initialW + deltaPtX));
         const newH = Math.round(newW / aspect);
@@ -146,7 +181,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     };
   }, [dragState, scale, pageInfo, placements, signature, onUpdatePlacement]);
 
-  // Click on page background to position or add placement
+  // Click on page background to position or paste
   const handlePageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (dragState) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -156,7 +191,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     const clickPtX = Math.round(clickXScreen / scale);
     const clickPtYScreen = Math.round(clickYScreen / scale);
 
-    // Active placement exists? Update its position to click point
+    // If an active placement is already on this page, move it to click location
     if (activePlacementId) {
       const active = placements.find((p) => p.id === activePlacementId && p.pageNumber === pageInfo.pageNumber);
       if (active) {
@@ -166,7 +201,6 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
 
         let targetY: number;
         if (active.origin === 'bottom-left') {
-          // Screen Y is distance from top -> PDF Y is height - screenY - halfH
           targetY = Math.max(0, Math.min(pageInfo.height - active.height, pageInfo.height - clickPtYScreen - halfH));
         } else {
           targetY = Math.max(0, Math.min(pageInfo.height - active.height, clickPtYScreen - halfH));
@@ -177,7 +211,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
       }
     }
 
-    // Otherwise add new placement at this coordinate
+    // Otherwise paste/add new placement at this exact point!
     onAddPlacementAtCoords(clickPtX, clickPtYScreen);
   };
 
@@ -186,6 +220,40 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
 
   return (
     <div ref={containerRef} className="w-full flex flex-col items-center select-none">
+      {/* On-Canvas Quick Actions Bar */}
+      <div className="w-full flex items-center justify-between pb-2 mb-2 text-xs">
+        <span className="text-slate-600 font-medium flex items-center gap-1">
+          <ClipboardPaste className="w-3.5 h-3.5 text-blue-600" />
+          <span>Click anywhere on page to paste signature (ক্লিক কৰি পেষ্ট কৰক)</span>
+        </span>
+
+        {activePlacementId && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setCopiedId(activePlacementId);
+                if (onDuplicatePlacement) onDuplicatePlacement(activePlacementId);
+              }}
+              className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded font-medium transition-colors text-[11px]"
+            >
+              <Copy className="w-3 h-3" />
+              <span>Copy & Paste Here</span>
+            </button>
+            {onApplyToAllPages && (
+              <button
+                type="button"
+                onClick={() => onApplyToAllPages(activePlacementId)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded font-medium transition-colors text-[11px]"
+              >
+                <Sparkles className="w-3 h-3 text-amber-500" />
+                <span>Paste on All Pages</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Visual Canvas Frame */}
       <div
         className="relative bg-white shadow-md border border-slate-300 rounded-sm overflow-hidden transition-shadow hover:shadow-lg cursor-crosshair"
@@ -196,20 +264,18 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
         onClick={handlePageClick}
       >
         {/* Document Simulation Mock Lines */}
-        <div className="absolute inset-0 p-8 pointer-events-none opacity-30 flex flex-col justify-between">
+        <div className="absolute inset-0 p-8 pointer-events-none opacity-25 flex flex-col justify-between">
           <div className="space-y-3">
             <div className="h-4 bg-slate-300 rounded w-1/3 mb-4" />
             <div className="h-2 bg-slate-200 rounded w-full" />
             <div className="h-2 bg-slate-200 rounded w-11/12" />
             <div className="h-2 bg-slate-200 rounded w-4/5" />
             <div className="h-2 bg-slate-200 rounded w-full" />
-            <div className="h-2 bg-slate-200 rounded w-9/12" />
           </div>
 
           <div className="space-y-2">
             <div className="h-2 bg-slate-200 rounded w-full" />
             <div className="h-2 bg-slate-200 rounded w-5/6" />
-            <div className="h-2 bg-slate-200 rounded w-full" />
             <div className="h-2 bg-slate-200 rounded w-2/3" />
           </div>
 
@@ -217,12 +283,6 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
             <span>Page {pageInfo.pageNumber}</span>
             <span>{pageInfo.width} × {pageInfo.height} pt</span>
           </div>
-        </div>
-
-        {/* Origin Badge */}
-        <div className="absolute bottom-2 left-2 pointer-events-none text-[9px] text-slate-500 font-mono bg-white/90 px-1.5 py-0.5 rounded border border-slate-200 shadow-xs flex items-center gap-1">
-          <Compass className="w-3 h-3 text-slate-600" />
-          <span>(0,0) Bottom-Left Origin</span>
         </div>
 
         {/* Placements for this page */}
@@ -251,7 +311,53 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
                 touchAction: 'none',
               }}
             >
-              {/* Signature Image preview inside box */}
+              {/* Floating Toolbar above the signature when active */}
+              {isActive && (
+                <div
+                  className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[11px] font-medium py-0.5 px-2 rounded-md shadow-md flex items-center gap-2 whitespace-nowrap z-20 pointer-events-auto"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCopiedId(placement.id);
+                      if (onDuplicatePlacement) onDuplicatePlacement(placement.id);
+                    }}
+                    className="hover:text-blue-300 flex items-center gap-1 transition-colors"
+                    title="Copy and paste this signature"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>Copy</span>
+                  </button>
+                  <span className="text-slate-600">|</span>
+                  {onApplyToAllPages && (
+                    <button
+                      type="button"
+                      onClick={() => onApplyToAllPages(placement.id)}
+                      className="hover:text-amber-300 flex items-center gap-1 transition-colors"
+                      title="Paste to all pages"
+                    >
+                      <Sparkles className="w-3 h-3 text-amber-400" />
+                      <span>All Pages</span>
+                    </button>
+                  )}
+                  {onRemovePlacement && placements.length > 1 && (
+                    <>
+                      <span className="text-slate-600">|</span>
+                      <button
+                        type="button"
+                        onClick={() => onRemovePlacement(placement.id)}
+                        className="hover:text-red-400 flex items-center gap-1 transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Signature Image preview */}
               {signature ? (
                 <img
                   src={signature.processedDataUrl}
@@ -264,17 +370,6 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
                   <span>Signature #{index + 1}</span>
                 </div>
               )}
-
-              {/* Tag with coordinates */}
-              <div
-                className={`absolute -top-6 left-0 text-[10px] font-mono px-1.5 py-0.5 rounded shadow-xs whitespace-nowrap pointer-events-none transition-opacity ${
-                  isActive
-                    ? 'bg-blue-600 text-white font-medium opacity-100'
-                    : 'bg-slate-800 text-white opacity-80 group-hover:opacity-100'
-                }`}
-              >
-                X: {placement.x}pt · Y: {placement.y}pt ({placement.origin === 'bottom-left' ? 'PDF' : 'Top'})
-              </div>
 
               {/* Resize Handle (Bottom-Right corner) */}
               <div
@@ -289,9 +384,9 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
         })}
       </div>
 
-      {/* Helper caption */}
+      {/* Helper guide */}
       <div className="mt-3 text-xs text-slate-500 text-center max-w-sm">
-        Click anywhere on the document to reposition the signature, or drag and resize directly.
+        💡 চহীটো ড্ৰেগ কৰি যিকোনো ঠাইলৈ নিব পাৰিব বা <strong>Ctrl+C</strong> আৰু <strong>Ctrl+V</strong> কৰি পেষ্ট কৰিব পাৰিব।
       </div>
     </div>
   );

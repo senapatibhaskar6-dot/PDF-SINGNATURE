@@ -566,6 +566,9 @@ export default function App() {
                       onSelectPlacement={(id) => setActivePlacementId(id)}
                       onUpdatePlacement={handleUpdatePlacement}
                       onAddPlacementAtCoords={handleAddPlacementAtCoords}
+                      onDuplicatePlacement={handleDuplicatePlacement}
+                      onRemovePlacement={handleRemovePlacement}
+                      onApplyToAllPages={handleApplyToAllPages}
                     />
                   </div>
                 ) : (
