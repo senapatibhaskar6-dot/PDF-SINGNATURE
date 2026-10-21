@@ -22,6 +22,7 @@ import { PlacementList } from './components/PlacementList';
 import { VisualPageCanvas } from './components/VisualPageCanvas';
 import { AllPagesFlowView } from './components/AllPagesFlowView';
 import { SignedPdfViewer } from './components/SignedPdfViewer';
+import { DocumentScannerModal } from './components/DocumentScannerModal';
 import {
   ChevronLeft,
   ChevronRight,
@@ -33,6 +34,7 @@ import {
   LayoutGrid,
   Square,
   Sparkles,
+  Camera,
 } from 'lucide-react';
 
 export default function App() {
@@ -42,6 +44,7 @@ export default function App() {
   const [activePlacementId, setActivePlacementId] = useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
   const [canvasViewMode, setCanvasViewMode] = useState<'focus' | 'all'>('focus');
+  const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
 
   // Export & View State
   const [isExporting, setIsExporting] = useState<boolean>(false);
@@ -408,7 +411,17 @@ export default function App() {
           </nav>
 
           {/* Primary Action Button */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsScannerOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-2xs transition-colors whitespace-nowrap"
+              title="কেমেৰাৰে পৃষ্ঠা স্কেন কৰি PDF বনাওক"
+            >
+              <Camera className="w-4 h-4 text-blue-600" />
+              <span>ডকুমেণ্ট স্কেন কৰক (Scan to PDF)</span>
+            </button>
+
             <button
               onClick={handleGenerateSignedPdf}
               disabled={isExporting || !pdfInfo || !signature || placements.length === 0}
@@ -468,6 +481,7 @@ export default function App() {
                   onLoadSample={handleLoadSamplePdf}
                   onResetPdf={handleResetPdf}
                   onRotatePdf={handleRotatePdf}
+                  onOpenScanner={() => setIsScannerOpen(true)}
                 />
               </div>
 
@@ -694,6 +708,15 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Camera Document Scanner to PDF Modal */}
+      <DocumentScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onSaveAndOpenInEditor={(file) => {
+          handlePdfSelected(file);
+        }}
+      />
     </div>
   );
 }
