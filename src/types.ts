@@ -23,10 +23,12 @@ export interface SignaturePlacement {
 }
 
 export interface BackgroundRemovalOptions {
-  threshold: number; // 150 - 255 (default: 215)
+  threshold: number; // 120 - 255 (default: 215)
   feather: number; // 0 - 50 (smoothing)
-  inkMode: 'original' | 'darken' | 'navy' | 'black';
+  shadowRemoval: number; // 0 - 100 (cleans phone shadows and off-white paper tint)
+  inkMode: 'original' | 'darken' | 'navy' | 'black' | 'high_contrast';
   autoTrim: boolean; // Crop empty transparent borders
+  cleanPreset?: 'crystal' | 'phone_photo' | 'scan' | 'custom';
 }
 
 export interface ProcessedSignature {

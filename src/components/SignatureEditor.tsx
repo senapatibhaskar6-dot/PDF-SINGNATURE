@@ -10,9 +10,10 @@ import {
   Check,
   RefreshCw,
   PenTool,
-  Image as ImageIcon,
   Eraser,
   Wand2,
+  Sparkles,
+  SunMedium,
 } from 'lucide-react';
 
 interface SignatureEditorProps {
@@ -30,7 +31,8 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
 
   const [options, setOptions] = useState<BackgroundRemovalOptions>({
     threshold: 215,
-    feather: 30,
+    feather: 25,
+    shadowRemoval: 45,
     inkMode: 'darken',
     autoTrim: true,
   });
@@ -38,7 +40,7 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
   // Canvas drawing state
   const drawCanvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [hasDrawnContent, setHasDrawnContent] = useState(false);
+  const [, setHasDrawnContent] = useState(false);
 
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -57,10 +59,47 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
     }
   };
 
+  // Quick preset applicator
+  const applyPreset = (presetName: 'crystal' | 'phone_photo' | 'high_contrast') => {
+    let newOpts: BackgroundRemovalOptions;
+
+    if (presetName === 'crystal') {
+      newOpts = {
+        threshold: 210,
+        feather: 20,
+        shadowRemoval: 55,
+        inkMode: 'darken',
+        autoTrim: true,
+      };
+    } else if (presetName === 'phone_photo') {
+      newOpts = {
+        threshold: 195,
+        feather: 20,
+        shadowRemoval: 75,
+        inkMode: 'high_contrast',
+        autoTrim: true,
+      };
+    } else {
+      // high_contrast
+      newOpts = {
+        threshold: 220,
+        feather: 15,
+        shadowRemoval: 60,
+        inkMode: 'high_contrast',
+        autoTrim: true,
+      };
+    }
+
+    setOptions(newOpts);
+    if (rawImageSource) {
+      reprocess(rawImageSource, newOpts);
+    }
+  };
+
   // Handle file upload
   const handleFileUpload = (file: File) => {
     if (!file.type.startsWith('image/')) {
-      alert('Please upload a valid image file (JPG or PNG).');
+      alert('অনুগ্ৰহ কৰি ফটো বা স্কেন কৰা ছবি (JPG / PNG) আপলোড কৰক।');
       return;
     }
 
@@ -139,7 +178,6 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Fill with slight off-white paper to demonstrate background removal!
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     setHasDrawnContent(false);
@@ -156,11 +194,14 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
       {/* Header & Mode Tabs */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">
-            Signature & Transparent Background
+          <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+            <span>Signature & Background Removal</span>
+            <span className="text-[11px] text-blue-700 font-normal bg-blue-50 px-2 py-0.5 rounded">
+              বগা কাগজ পৰিষ্কাৰ
+            </span>
           </h3>
           <p className="text-xs text-slate-500">
-            Automatically isolates ink strokes and removes white paper backgrounds
+            Automatically erases white paper & phone shadows, leaving crisp, transparent ink
           </p>
         </div>
 
@@ -174,7 +215,7 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
             }`}
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>Upload File</span>
+            <span>Upload Photo / Scan</span>
           </button>
           <button
             onClick={() => setActiveTab('draw')}
@@ -185,7 +226,7 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
             }`}
           >
             <PenTool className="w-3.5 h-3.5" />
-            <span>Draw Here</span>
+            <span>Draw Directly</span>
           </button>
         </div>
       </div>
@@ -215,10 +256,10 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
           </div>
 
           <p className="text-xs font-semibold text-slate-800 mb-1">
-            Click to upload signature or drag image here
+            Click to upload your signature photo or drag image here
           </p>
           <p className="text-[11px] text-slate-500 mb-3">
-            Supports PNG or JPG (scanned sheets, photos, or digital signatures)
+            কাগজত চহী কৰি মʼবাইলত ফটো তুলি ইয়াত আপলোড কৰক (JPG / PNG)
           </p>
 
           <button
@@ -227,10 +268,10 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
               e.stopPropagation();
               handleLoadSample();
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-md border border-slate-200 shadow-2xs transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-md border border-slate-200 shadow-2xs transition-colors"
           >
             <Wand2 className="w-3.5 h-3.5 text-blue-600" />
-            <span>Use Sample Cursive Signature</span>
+            <span>Use Sample Cursive Signature (নমুনা চহী)</span>
           </button>
         </div>
       ) : (
@@ -249,14 +290,14 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
           </div>
           <div className="flex items-center justify-between text-xs">
             <span className="text-slate-500">
-              Sign with your mouse, trackpad, or finger above
+              তলত আঙুলি বা মাউচৰ সহায়ত চহী কৰক
             </span>
             <button
               onClick={clearDrawingCanvas}
               className="inline-flex items-center gap-1 text-slate-600 hover:text-red-600 transition-colors"
             >
               <Eraser className="w-3.5 h-3.5" />
-              <span>Clear Pad</span>
+              <span>Clear Pad (মচি পেলাওক)</span>
             </button>
           </div>
         </div>
@@ -265,19 +306,44 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
       {/* Signature Previews & Background Removal Tuning */}
       {signature && (
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4">
+          {/* Quick Presets for crystal clean background */}
+          <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200">
+            <span className="text-xs font-medium text-slate-700 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              <span>Crystal Clear Presets (পৰিষ্কাৰ মোড):</span>
+            </span>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => applyPreset('crystal')}
+                className="px-2.5 py-1 text-xs font-medium bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 rounded-md shadow-2xs transition-colors"
+              >
+                Ultra Clear (অধিক স্বচ্ছ)
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset('phone_photo')}
+                className="px-2.5 py-1 text-xs font-medium bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 rounded-md shadow-2xs transition-colors"
+              >
+                Mobile Photo (ছাঁ আঁতৰাওক)
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset('high_contrast')}
+                className="px-2.5 py-1 text-xs font-medium bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 rounded-md shadow-2xs transition-colors"
+              >
+                Crisp Black (গাঢ় চহী)
+              </button>
+            </div>
+          </div>
+
           {/* Side-by-Side Comparison */}
           <div>
-            <div className="flex items-center justify-between text-xs font-medium text-slate-700 mb-2">
-              <span>Automatic Background Removal Result:</span>
-              <span className="font-mono text-[11px] text-slate-500">
-                {signature.width} × {signature.height} px
-              </span>
-            </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Original Preview */}
               <div className="space-y-1">
-                <span className="text-[11px] text-slate-500 font-medium">Original Image</span>
+                <span className="text-[11px] text-slate-500 font-medium">Original Upload (মূল ছবি)</span>
                 <div className="h-24 bg-white border border-slate-200 rounded-lg p-2 flex items-center justify-center overflow-hidden">
                   <img
                     src={signature.originalDataUrl}
@@ -291,7 +357,10 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-emerald-700 font-medium flex items-center gap-1">
-                    <Check className="w-3 h-3" /> Transparent PNG (Ready)
+                    <Check className="w-3 h-3" /> Transparent PNG (স্বচ্ছ আৰু পৰিষ্কাৰ)
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-500">
+                    {signature.width}×{signature.height}px
                   </span>
                 </div>
                 <div className="h-24 bg-checkerboard border border-emerald-300 rounded-lg p-2 flex items-center justify-center overflow-hidden relative">
@@ -315,20 +384,20 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium text-slate-700 flex items-center gap-1">
                 <Sliders className="w-3.5 h-3.5 text-slate-500" />
-                <span>Background Removal Tuning</span>
+                <span>Fine-Tune Sliders (প্ৰয়োজন অনুসৰি এডজাষ্ট কৰক)</span>
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
               {/* White Threshold */}
               <div>
                 <div className="flex justify-between text-[11px] text-slate-600 mb-1">
-                  <span>White Cutoff Threshold</span>
+                  <span>White Cutoff (বগা ৰং কাটোৰ)</span>
                   <span className="font-mono">{options.threshold}</span>
                 </div>
                 <input
                   type="range"
-                  min="160"
+                  min="140"
                   max="250"
                   value={options.threshold}
                   onChange={(e) => {
@@ -336,14 +405,37 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
                     setOptions(newOpts);
                     if (rawImageSource) reprocess(rawImageSource, newOpts);
                   }}
-                  className="w-full accent-blue-600"
+                  className="w-full accent-blue-600 cursor-pointer"
                 />
               </div>
 
-              {/* Feather / Edge Smoothing */}
+              {/* Shadow / Phone Paper Tint Remover */}
+              <div>
+                <div className="flex justify-between text-[11px] text-slate-600 mb-1 flex items-center gap-1">
+                  <span className="flex items-center gap-1">
+                    <SunMedium className="w-3 h-3 text-amber-500" />
+                    <span>Shadow Remover (ছাঁ আঁতৰোৱা)</span>
+                  </span>
+                  <span className="font-mono">{options.shadowRemoval}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={options.shadowRemoval}
+                  onChange={(e) => {
+                    const newOpts = { ...options, shadowRemoval: Number(e.target.value) };
+                    setOptions(newOpts);
+                    if (rawImageSource) reprocess(rawImageSource, newOpts);
+                  }}
+                  className="w-full accent-blue-600 cursor-pointer"
+                />
+              </div>
+
+              {/* Edge Smoothness */}
               <div>
                 <div className="flex justify-between text-[11px] text-slate-600 mb-1">
-                  <span>Edge Smoothness</span>
+                  <span>Edge Smoothness (মসৃণতা)</span>
                   <span className="font-mono">{options.feather}</span>
                 </div>
                 <input
@@ -356,7 +448,7 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
                     setOptions(newOpts);
                     if (rawImageSource) reprocess(rawImageSource, newOpts);
                   }}
-                  className="w-full accent-blue-600"
+                  className="w-full accent-blue-600 cursor-pointer"
                 />
               </div>
             </div>
@@ -365,12 +457,12 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs pt-1">
               {/* Ink Style */}
               <div className="flex items-center gap-2">
-                <span className="text-slate-600 text-[11px]">Ink Style:</span>
+                <span className="text-slate-600 text-[11px]">Ink Color (চহীৰ ৰং):</span>
                 <div className="inline-flex rounded-md bg-white p-0.5 border border-slate-200 shadow-2xs">
                   {[
                     { id: 'darken', label: 'Darken Ink' },
-                    { id: 'navy', label: 'Deep Navy' },
-                    { id: 'black', label: 'Solid Black' },
+                    { id: 'high_contrast', label: 'Solid Black (গাঢ় কʼলা)' },
+                    { id: 'navy', label: 'Deep Blue (নীলা)' },
                     { id: 'original', label: 'Original' },
                   ].map((mode) => (
                     <button
@@ -405,7 +497,7 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
                   }}
                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
                 />
-                <span>Auto-crop empty borders</span>
+                <span>Auto-crop empty borders (অলাগতিয়াল বৰ্ডাৰ কাটোৰ)</span>
               </label>
             </div>
           </div>

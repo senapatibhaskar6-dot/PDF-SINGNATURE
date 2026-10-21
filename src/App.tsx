@@ -19,17 +19,19 @@ import { PdfUploader } from './components/PdfUploader';
 import { SignatureEditor } from './components/SignatureEditor';
 import { PlacementList } from './components/PlacementList';
 import { VisualPageCanvas } from './components/VisualPageCanvas';
+import { AllPagesFlowView } from './components/AllPagesFlowView';
 import { SignedPdfViewer } from './components/SignedPdfViewer';
 import {
-  FileCheck2,
   ChevronLeft,
   ChevronRight,
   Download,
   ShieldCheck,
   Zap,
-  HelpCircle,
   FileSignature,
   ArrowRight,
+  LayoutGrid,
+  Square,
+  Sparkles,
 } from 'lucide-react';
 
 export default function App() {
@@ -38,6 +40,7 @@ export default function App() {
   const [placements, setPlacements] = useState<SignaturePlacement[]>([]);
   const [activePlacementId, setActivePlacementId] = useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
+  const [canvasViewMode, setCanvasViewMode] = useState<'focus' | 'all'>('focus');
 
   // Export & View State
   const [isExporting, setIsExporting] = useState<boolean>(false);
@@ -50,7 +53,7 @@ export default function App() {
   // Status/Error banner
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Auto-load sample PDF and sample signature on initial visit so the user can immediately experience the app!
+  // Auto-load sample PDF and sample signature on initial visit
   useEffect(() => {
     async function initSample() {
       try {
@@ -60,7 +63,8 @@ export default function App() {
         const sampleSigDataUrl = generateSampleSignatureDataUrl();
         const processedSig = await processSignatureImage(sampleSigDataUrl, {
           threshold: 215,
-          feather: 30,
+          feather: 25,
+          shadowRemoval: 45,
           inkMode: 'darken',
           autoTrim: true,
         });
@@ -90,7 +94,7 @@ export default function App() {
 
         setPlacements(initialPlacements);
         setActivePlacementId('placement-p3');
-        setCurrentPageIndex(2); // Show page 3 initially to highlight the main signature!
+        setCurrentPageIndex(2); // Show page 3 initially to highlight execution block
       } catch (e) {
         console.error('Initial sample generation error:', e);
       }
@@ -108,7 +112,7 @@ export default function App() {
       setSignedResult(null);
       setCurrentPageIndex(0);
 
-      // Create a default signature placement on the last page if none exists
+      // Default signature placement
       const defaultPage = docInfo.pageCount;
       const targetPageInfo = docInfo.pages[defaultPage - 1] || { width: 612, height: 792 };
       const sigWidth = signature ? Math.min(180, Math.round(targetPageInfo.width * 0.3)) : 160;
@@ -176,7 +180,32 @@ export default function App() {
     setCurrentPageIndex(targetPage - 1);
   };
 
-  // Add placement at exact clicked coordinates on the visual canvas
+  // Add placement directly to a specific page
+  const handleAddPlacementToPage = (pageNumber: number, xPt?: number, yPt?: number) => {
+    if (!pdfInfo) return;
+    const pageMeta = pdfInfo.pages[pageNumber - 1] || pdfInfo.pages[0];
+
+    const sigW = signature ? Math.min(170, Math.round(pageMeta.width * 0.3)) : 160;
+    const sigH = signature ? Math.round(sigW / signature.aspectRatio) : 55;
+
+    const finalX = xPt !== undefined ? Math.max(0, Math.min(pageMeta.width - sigW, xPt)) : Math.max(54, pageMeta.width - sigW - 54);
+    const finalY = yPt !== undefined ? Math.max(0, Math.min(pageMeta.height - sigH, yPt)) : 70;
+
+    const newPlacement: SignaturePlacement = {
+      id: 'placement-' + Date.now(),
+      pageNumber,
+      x: finalX,
+      y: finalY,
+      width: sigW,
+      height: sigH,
+      origin: 'bottom-left',
+    };
+
+    setPlacements((prev) => [...prev, newPlacement]);
+    setActivePlacementId(newPlacement.id);
+  };
+
+  // Add placement at exact clicked coordinates on the visual single canvas
   const handleAddPlacementAtCoords = (xPt: number, yPtScreen: number) => {
     if (!pdfInfo) return;
     const targetPage = currentPageIndex + 1;
@@ -185,8 +214,6 @@ export default function App() {
     const sigW = signature ? Math.min(170, Math.round(pageMeta.width * 0.3)) : 160;
     const sigH = signature ? Math.round(sigW / signature.aspectRatio) : 55;
 
-    // By default user clicked with screen coordinates (origin top-left)
-    // Convert to PDF bottom-left:
     const pdfY = Math.max(0, pageMeta.height - yPtScreen - sigH);
 
     const newPlacement: SignaturePlacement = {
@@ -209,7 +236,6 @@ export default function App() {
       prev.map((p) => {
         if (p.id === id) {
           const updated = { ...p, ...updates };
-          // If page changed, sync currentPageIndex
           if (updates.pageNumber && updates.pageNumber !== p.pageNumber) {
             setCurrentPageIndex(updates.pageNumber - 1);
           }
@@ -248,14 +274,14 @@ export default function App() {
   // Batch action: Apply current placement to ALL pages
   const handleApplyToAllPages = (basePlacementId: string) => {
     if (!pdfInfo) return;
-    const base = placements.find((p) => p.id === basePlacementId);
+    const base = placements.find((p) => p.id === basePlacementId) || placements[0];
     if (!base) return;
 
     const newPlacements: SignaturePlacement[] = [];
     for (let pageNum = 1; pageNum <= pdfInfo.pageCount; pageNum++) {
       newPlacements.push({
         ...base,
-        id: `placement-page-${pageNum}-${Date.now()}`,
+        id: `placement-page-${pageNum}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         pageNumber: pageNum,
       });
     }
@@ -275,15 +301,15 @@ export default function App() {
   // Generate & Sign PDF
   const handleGenerateSignedPdf = async () => {
     if (!pdfInfo) {
-      setErrorMessage('Please upload a PDF document first.');
+      setErrorMessage('অনুগ্রহ কৰি প্ৰথমে এটা PDF ফাইল আপলোড কৰক।');
       return;
     }
     if (!signature) {
-      setErrorMessage('Please upload or generate a signature image first.');
+      setErrorMessage('অনুগ্রহ কৰি চহীৰ ফটো বা ছবি আপলোড কৰক।');
       return;
     }
     if (placements.length === 0) {
-      setErrorMessage('Please add at least one signature coordinate position.');
+      setErrorMessage('অন্ততঃ এটা পৃষ্ঠাত চহী বহুৱাওক।');
       return;
     }
 
@@ -315,12 +341,14 @@ export default function App() {
     pdfInfo?.pages[currentPageIndex] ||
     pdfInfo?.pages[0] || { pageNumber: 1, width: 612, height: 792 };
 
+  const uniqueSignedPagesCount = new Set(placements.map((p) => p.pageNumber)).size;
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900">
-      {/* Top Bar Contract: Zone 1 (Wordmark) — Zone 2 (Nav links) — Zone 3 (1 Primary Action) */}
+      {/* Top Bar */}
       <header className="bg-white border-b border-slate-200 px-6 py-3.5 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-8">
-          {/* Zone 1: Single text element wordmark */}
+          {/* Brand */}
           <div className="flex items-center gap-2.5 shrink-0">
             <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-xs">
               <FileSignature className="w-5 h-5" />
@@ -330,24 +358,20 @@ export default function App() {
             </a>
           </div>
 
-          {/* Zone 2: Concise single-line navigation indicators */}
+          {/* Navigation indicators */}
           <nav className="hidden md:flex items-center gap-6 text-xs font-medium text-slate-600">
             <span className="flex items-center gap-1.5 whitespace-nowrap text-slate-900">
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>100% Client-Side Privacy</span>
+              <span>100% Client-Side Privacy (গোপনীয়তা সুৰক্ষিত)</span>
             </span>
             <span className="text-slate-300">·</span>
             <span className="flex items-center gap-1.5 whitespace-nowrap">
               <Zap className="w-4 h-4 text-amber-500" />
-              <span>Zero CORS / No External PDF Workers</span>
-            </span>
-            <span className="text-slate-300">·</span>
-            <span className="whitespace-nowrap text-slate-600">
-              Multi-Page Coordinate Placement
+              <span>Multi-Page Batch Signing (প্ৰতিটো পৃষ্ঠাত চহী)</span>
             </span>
           </nav>
 
-          {/* Zone 3: 1 Primary Action */}
+          {/* Primary Action Button */}
           <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={handleGenerateSignedPdf}
@@ -359,7 +383,7 @@ export default function App() {
               ) : (
                 <>
                   <Download className="w-4 h-4" />
-                  <span>Export Signed PDF</span>
+                  <span>Export Signed PDF (ডাউনলোড কৰক)</span>
                 </>
               )}
             </button>
@@ -416,7 +440,6 @@ export default function App() {
                   signature={signature}
                   onSignatureProcessed={(sig) => {
                     setSignature(sig);
-                    // Update placements height based on new aspect ratio if needed
                     if (placements.length > 0) {
                       setPlacements((prev) =>
                         prev.map((p) => ({
@@ -454,22 +477,56 @@ export default function App() {
               )}
             </div>
 
-            {/* Right Column: Visual Page Canvas & Position Inspector (5 cols) */}
+            {/* Right Column: Visual Page Canvas & Multi-Page View (5 cols) */}
             <div className="lg:col-span-5 space-y-4">
               <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs flex flex-col">
-                {/* Page Navigation & Dimensions Header */}
-                <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-200">
+                {/* View Switcher & Header */}
+                <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200 flex-wrap gap-2">
                   <div>
                     <h3 className="text-sm font-semibold text-slate-900">
-                      Interactive Document View
+                      Visual Document View (নথি চাওক)
                     </h3>
                     <p className="text-xs text-slate-500 font-mono">
-                      Page {currentPageIndex + 1} of {pdfInfo ? pdfInfo.pageCount : 1} ·{' '}
-                      {activePageInfo.width} × {activePageInfo.height} pt
+                      {uniqueSignedPagesCount} of {pdfInfo ? pdfInfo.pageCount : 1} pages signed
                     </p>
                   </div>
 
-                  {pdfInfo && pdfInfo.pageCount > 1 && (
+                  {/* View Mode Toggle: Single Page vs All Pages Flow */}
+                  <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setCanvasViewMode('focus')}
+                      className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                        canvasViewMode === 'focus'
+                          ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Square className="w-3.5 h-3.5" />
+                      <span>Single Page</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCanvasViewMode('all')}
+                      className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                        canvasViewMode === 'all'
+                          ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                      <span>All Pages Flow</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub-bar for Single Page navigation */}
+                {canvasViewMode === 'focus' && pdfInfo && (
+                  <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+                    <span className="text-xs font-medium text-slate-700">
+                      Page {currentPageIndex + 1} of {pdfInfo.pageCount}
+                    </span>
+
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setCurrentPageIndex((prev) => Math.max(0, prev - 1))}
@@ -495,87 +552,72 @@ export default function App() {
                         <ChevronRight className="w-4 h-4" />
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* Render View depending on mode */}
+                {canvasViewMode === 'focus' ? (
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex items-center justify-center min-h-[460px]">
+                    <VisualPageCanvas
+                      pageInfo={activePageInfo}
+                      placements={placements}
+                      activePlacementId={activePlacementId}
+                      signature={signature}
+                      onSelectPlacement={(id) => setActivePlacementId(id)}
+                      onUpdatePlacement={handleUpdatePlacement}
+                      onAddPlacementAtCoords={handleAddPlacementAtCoords}
+                    />
+                  </div>
+                ) : (
+                  /* All Pages Flow View */
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    {pdfInfo && (
+                      <AllPagesFlowView
+                        pages={pdfInfo.pages}
+                        placements={placements}
+                        activePlacementId={activePlacementId}
+                        signature={signature}
+                        onSelectPlacement={(id) => setActivePlacementId(id)}
+                        onUpdatePlacement={handleUpdatePlacement}
+                        onAddPlacementToPage={handleAddPlacementToPage}
+                        onRemovePlacement={handleRemovePlacement}
+                        onFocusPage={(pageIdx) => {
+                          setCurrentPageIndex(pageIdx);
+                          setCanvasViewMode('focus');
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {/* Bottom Quick Action in Visual inspector */}
+                <div className="mt-3 pt-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-600">
+                  <span>
+                    {canvasViewMode === 'focus'
+                      ? 'ডকুমেণ্টত যিকোনো ঠাইত ক্লিক কৰি চহী সলাওক বা স্থান নিৰ্ধাৰণ কৰক'
+                      : 'প্ৰতিটো পৃষ্ঠাত নিজ ইচ্ছামতে চহী বহুৱাওক আৰু এডজাষ্ট কৰক'}
+                  </span>
+                  {placements.length > 0 && (
+                    <button
+                      onClick={() => handleApplyToAllPages(activePlacementId || placements[0].id)}
+                      className="text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-1 shrink-0 ml-2"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>সকলো পৃষ্ঠাত বহুৱাওক</span>
+                    </button>
                   )}
                 </div>
-
-                {/* Page Thumbnails Selector (if multi-page) */}
-                {pdfInfo && pdfInfo.pageCount > 1 && (
-                  <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 border-b border-slate-100 scrollbar-thin">
-                    {pdfInfo.pages.map((p, idx) => {
-                      const countOnPage = placements.filter(
-                        (pl) => pl.pageNumber === p.pageNumber
-                      ).length;
-                      const isCurrent = idx === currentPageIndex;
-
-                      return (
-                        <button
-                          key={p.pageNumber}
-                          onClick={() => setCurrentPageIndex(idx)}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium shrink-0 transition-colors ${
-                            isCurrent
-                              ? 'bg-blue-600 text-white shadow-2xs'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                          }`}
-                        >
-                          <span>Page {p.pageNumber}</span>
-                          {countOnPage > 0 && (
-                            <span
-                              className={`text-[10px] px-1 rounded-full ${
-                                isCurrent
-                                  ? 'bg-blue-700 text-white'
-                                  : 'bg-slate-200 text-slate-700'
-                              }`}
-                            >
-                              {countOnPage}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* The Interactive Visual Canvas */}
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex items-center justify-center min-h-[480px]">
-                  <VisualPageCanvas
-                    pageInfo={activePageInfo}
-                    placements={placements}
-                    activePlacementId={activePlacementId}
-                    signature={signature}
-                    onSelectPlacement={(id) => setActivePlacementId(id)}
-                    onUpdatePlacement={handleUpdatePlacement}
-                    onAddPlacementAtCoords={handleAddPlacementAtCoords}
-                  />
-                </div>
-
-                {/* Coordinate Information Pill-Free Summary */}
-                {activePlacementId && (
-                  <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-600 font-mono">
-                    {(() => {
-                      const p = placements.find((item) => item.id === activePlacementId);
-                      if (!p) return null;
-                      return (
-                        <>
-                          <span>Active: Pos on Page {p.pageNumber}</span>
-                          <span>
-                            X: {p.x}pt · Y: {p.y}pt ({p.width}×{p.height}pt)
-                          </span>
-                        </>
-                      );
-                    })()}
-                  </div>
-                )}
               </div>
 
-              {/* Bottom Quick-Action Sign Bar */}
+              {/* Ready to sign banner */}
               <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-xl p-5 shadow-md flex items-center justify-between gap-4">
                 <div>
                   <h4 className="text-sm font-semibold text-white">
-                    Ready to Sign Document
+                    Sign & Download Document (চহী সম্পূৰ্ণ কৰক)
                   </h4>
                   <p className="text-xs text-blue-200 mt-0.5">
-                    {placements.length} {placements.length === 1 ? 'signature' : 'signatures'} configured across{' '}
-                    {new Set(placements.map((p) => p.pageNumber)).size} {new Set(placements.map((p) => p.pageNumber)).size === 1 ? 'page' : 'pages'}
+                    {placements.length} {placements.length === 1 ? 'signature' : 'signatures'} across{' '}
+                    {uniqueSignedPagesCount} {uniqueSignedPagesCount === 1 ? 'page' : 'pages'}
                   </p>
                 </div>
 
@@ -584,7 +626,7 @@ export default function App() {
                   disabled={isExporting || !pdfInfo || !signature || placements.length === 0}
                   className="px-4 py-2.5 bg-blue-500 hover:bg-blue-400 disabled:opacity-40 text-white text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center gap-1.5 shrink-0"
                 >
-                  <span>Generate Signed PDF</span>
+                  <span>Export Signed PDF</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -593,7 +635,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Clean Footer adhering to design guidelines (no fake telemetry, simple copyright & privacy statement) */}
+      {/* Clean Footer */}
       <footer className="mt-auto border-t border-slate-200 bg-white py-4 px-6 text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -602,7 +644,7 @@ export default function App() {
             <span>Client-side PDF signature engine powered by pdf-lib</span>
           </div>
           <div>
-            <span>All document operations and image processing are executed offline in your browser.</span>
+            <span>আপোনাৰ সকলো নথি আৰু চহী আপোনাৰ ডিভাইচতে সম্পূৰ্ণ সুৰক্ষিতভাৱে প্ৰচেচ কৰা হয়।</span>
           </div>
         </div>
       </footer>
