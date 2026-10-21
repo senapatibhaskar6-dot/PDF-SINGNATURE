@@ -1,8 +1,8 @@
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import { PdfDocumentInfo, SignaturePlacement } from '../types';
+import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
+import { PdfDocumentInfo, SignaturePlacement, PageInfo } from '../types';
 
 /**
- * Loads a PDF file and extracts page counts and dimensions in points.
+ * Loads a PDF file and extracts page counts, rotation angles, and dimensions in points.
  */
 export async function loadPdfDocument(fileOrBytes: File | ArrayBuffer | Uint8Array, fileName?: string): Promise<PdfDocumentInfo> {
   let bytes: Uint8Array;
@@ -24,15 +24,21 @@ export async function loadPdfDocument(fileOrBytes: File | ArrayBuffer | Uint8Arr
 
   const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
   const pageCount = pdfDoc.getPageCount();
-  const pages = [];
+  const pages: PageInfo[] = [];
 
   for (let i = 0; i < pageCount; i++) {
     const page = pdfDoc.getPage(i);
     const { width, height } = page.getSize();
+    const rot = ((page.getRotation().angle % 360) + 360) % 360;
+    const isTransposed = rot === 90 || rot === 270;
+
     pages.push({
       pageNumber: i + 1,
-      width: Math.round(width),
-      height: Math.round(height),
+      width: Math.round(isTransposed ? height : width),
+      height: Math.round(isTransposed ? width : height),
+      unrotatedWidth: Math.round(width),
+      unrotatedHeight: Math.round(height),
+      rotation: rot,
     });
   }
 
@@ -46,19 +52,41 @@ export async function loadPdfDocument(fileOrBytes: File | ArrayBuffer | Uint8Arr
 }
 
 /**
+ * Rotates specific pages or all pages of the PDF by +90° (clockwise) or -90° (counter-clockwise).
+ */
+export async function rotatePdfDocument(
+  pdfInfo: PdfDocumentInfo,
+  targetPageNumber: number | 'all',
+  deltaDegrees: number
+): Promise<PdfDocumentInfo> {
+  const pdfDoc = await PDFDocument.load(pdfInfo.rawBytes, { ignoreEncryption: true });
+  const totalPages = pdfDoc.getPageCount();
+
+  for (let i = 0; i < totalPages; i++) {
+    if (targetPageNumber === 'all' || targetPageNumber === i + 1) {
+      const page = pdfDoc.getPage(i);
+      const currentAngle = page.getRotation().angle;
+      const newAngle = ((currentAngle + deltaDegrees) % 360 + 360) % 360;
+      page.setRotation(degrees(newAngle));
+    }
+  }
+
+  const newBytes = await pdfDoc.save();
+  return loadPdfDocument(newBytes, pdfInfo.name);
+}
+
+/**
  * Embeds the transparent signature onto the specified pages and coordinates,
- * then saves and returns the signed PDF blob.
+ * taking into account page rotation so signatures appear upright and in the exact position.
  */
 export async function applySignaturesAndExport(
   pdfDocInfo: PdfDocumentInfo,
   signaturePngBytes: Uint8Array,
   placements: SignaturePlacement[]
 ): Promise<{ bytes: Uint8Array; blob: Blob; url: string }> {
-  // Fresh load from the stored raw bytes
   const pdfDoc = await PDFDocument.load(pdfDocInfo.rawBytes);
   const totalPages = pdfDoc.getPageCount();
 
-  // Embed the transparent PNG image once
   const pngImage = await pdfDoc.embedPng(signaturePngBytes);
 
   for (const placement of placements) {
@@ -68,21 +96,58 @@ export async function applySignaturesAndExport(
     }
 
     const page = pdfDoc.getPage(pageIndex);
-    const pageHeight = page.getHeight();
+    const { width: W0, height: H0 } = page.getSize();
+    const rot = ((page.getRotation().angle % 360) + 360) % 360;
 
-    // PDF coordinate system origin (0, 0) is at the bottom-left corner.
-    // If user specified origin as 'top-left', convert Y:
-    let finalY = placement.y;
-    if (placement.origin === 'top-left') {
-      finalY = pageHeight - placement.y - placement.height;
+    // Determine visual dimensions
+    const visualHeight = rot === 90 || rot === 270 ? W0 : H0;
+
+    // Calculate visual top-left coordinates (xScreen, yScreen)
+    let xScreen = placement.x;
+    let yScreen = placement.y;
+    if (placement.origin === 'bottom-left') {
+      yScreen = visualHeight - placement.y - placement.height;
     }
 
-    page.drawImage(pngImage, {
-      x: placement.x,
-      y: finalY,
-      width: placement.width,
-      height: placement.height,
-    });
+    // Map screen top-left coordinates to PDF user space depending on page rotation
+    let drawParams: any;
+
+    if (rot === 0) {
+      drawParams = {
+        x: xScreen,
+        y: H0 - yScreen - placement.height,
+        width: placement.width,
+        height: placement.height,
+        rotate: degrees(0),
+      };
+    } else if (rot === 90) {
+      drawParams = {
+        x: yScreen,
+        y: xScreen + placement.width,
+        width: placement.width,
+        height: placement.height,
+        rotate: degrees(270),
+      };
+    } else if (rot === 180) {
+      drawParams = {
+        x: W0 - xScreen,
+        y: yScreen,
+        width: placement.width,
+        height: placement.height,
+        rotate: degrees(180),
+      };
+    } else {
+      // rot === 270
+      drawParams = {
+        x: H0 - yScreen,
+        y: W0 - xScreen - placement.width,
+        width: placement.width,
+        height: placement.height,
+        rotate: degrees(90),
+      };
+    }
+
+    page.drawImage(pngImage, drawParams);
   }
 
   const signedBytes = await pdfDoc.save();
@@ -283,9 +348,9 @@ export async function createSamplePdf(): Promise<PdfDocumentInfo> {
     size: rawBytes.byteLength,
     pageCount: 3,
     pages: [
-      { pageNumber: 1, width: 612, height: 792 },
-      { pageNumber: 2, width: 612, height: 792 },
-      { pageNumber: 3, width: 612, height: 792 },
+      { pageNumber: 1, width: 612, height: 792, unrotatedWidth: 612, unrotatedHeight: 792, rotation: 0 },
+      { pageNumber: 2, width: 612, height: 792, unrotatedWidth: 612, unrotatedHeight: 792, rotation: 0 },
+      { pageNumber: 3, width: 612, height: 792, unrotatedWidth: 612, unrotatedHeight: 792, rotation: 0 },
     ],
     rawBytes,
   };

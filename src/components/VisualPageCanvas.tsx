@@ -23,6 +23,8 @@ interface VisualPageCanvasProps {
   onDuplicatePlacement?: (id: string) => void;
   onRemovePlacement?: (id: string) => void;
   onApplyToAllPages?: (id: string) => void;
+  onRotatePage?: (delta: number) => void;
+  onRotateAllPages?: (delta: number) => void;
 }
 
 export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
@@ -37,6 +39,8 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
   onDuplicatePlacement,
   onRemovePlacement,
   onApplyToAllPages,
+  onRotatePage,
+  onRotateAllPages,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -266,24 +270,50 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
 
   return (
     <div ref={containerRef} className="w-full flex flex-col items-center select-none">
-      {/* On-Canvas Guide Header */}
-      <div className="w-full max-w-2xl bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-3 py-2 mb-3 flex items-center justify-between text-xs">
+      {/* On-Canvas Guide Header & Rotation Tools */}
+      <div className="w-full max-w-2xl bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-3 py-2 mb-3 flex items-center justify-between flex-wrap gap-2 text-xs">
         <div className="flex items-center gap-1.5 font-medium">
           <Hand className="w-4 h-4 text-blue-600 shrink-0" />
           <span>
-            <strong>হাত বা মাউচেৰে ক্লিক কৰক:</strong> PDF খনৰ যিকোনো ঠাইত ক্লিক কৰিলেই তাত চহী বহি যাব আৰু ড্ৰেগ কৰিব পাৰিব!
+            <strong>ক্লিক কৰি চহী বহুৱাওক:</strong> য'ত চহী লাগে তাত ক্লিক কৰক আৰু ড্ৰেগ কৰক!
           </span>
         </div>
 
-        {activePlacementId && onDuplicatePlacement && (
-          <button
-            type="button"
-            onClick={() => onDuplicatePlacement(activePlacementId)}
-            className="px-2.5 py-1 bg-blue-600 text-white rounded text-[11px] font-semibold hover:bg-blue-700 transition-colors shadow-2xs shrink-0 ml-2"
-          >
-            + Paste Duplicate
-          </button>
-        )}
+        {/* Rotation and Duplicate Controls */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {onRotatePage && (
+            <div className="flex items-center gap-1 bg-white border border-blue-200 rounded-md p-0.5 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => onRotatePage(90)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-blue-800 hover:bg-blue-50 rounded text-[11px] font-semibold transition-colors"
+                title="Rotate page 90° clockwise"
+              >
+                <span>Rotate 90° (ঘূৰাওক ⟳)</span>
+              </button>
+              {onRotateAllPages && (
+                <button
+                  type="button"
+                  onClick={() => onRotateAllPages(90)}
+                  className="px-1.5 py-0.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded text-[10px] transition-colors"
+                  title="Rotate all pages in document"
+                >
+                  All
+                </button>
+              )}
+            </div>
+          )}
+
+          {activePlacementId && onDuplicatePlacement && (
+            <button
+              type="button"
+              onClick={() => onDuplicatePlacement(activePlacementId)}
+              className="px-2 py-1 bg-blue-600 text-white rounded text-[11px] font-semibold hover:bg-blue-700 transition-colors shadow-2xs"
+            >
+              + Duplicate
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Real PDF Canvas Document Frame */}

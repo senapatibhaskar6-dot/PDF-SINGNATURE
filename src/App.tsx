@@ -13,6 +13,7 @@ import {
   loadPdfDocument,
   createSamplePdf,
   applySignaturesAndExport,
+  rotatePdfDocument,
 } from './utils/pdfHelper';
 import { generateSampleSignatureDataUrl, processSignatureImage } from './utils/imageProcessor';
 import { PdfUploader } from './components/PdfUploader';
@@ -271,6 +272,19 @@ export default function App() {
     setActivePlacementId(clone.id);
   };
 
+  // Rotate PDF pages by delta (+90° or -90°)
+  const handleRotatePdf = async (targetPage: number | 'all', deltaDegrees: number) => {
+    if (!pdfInfo) return;
+    try {
+      const updated = await rotatePdfDocument(pdfInfo, targetPage, deltaDegrees);
+      setPdfInfo(updated);
+      setSignedResult(null);
+    } catch (err: any) {
+      console.error('Failed to rotate PDF:', err);
+      setErrorMessage('Failed to rotate PDF: ' + (err.message || 'Unknown error'));
+    }
+  };
+
   // Batch action: Apply current placement to ALL pages
   const handleApplyToAllPages = (basePlacementId: string) => {
     if (!pdfInfo) return;
@@ -339,7 +353,7 @@ export default function App() {
   // Active page info
   const activePageInfo =
     pdfInfo?.pages[currentPageIndex] ||
-    pdfInfo?.pages[0] || { pageNumber: 1, width: 612, height: 792 };
+    pdfInfo?.pages[0] || { pageNumber: 1, width: 612, height: 792, unrotatedWidth: 612, unrotatedHeight: 792, rotation: 0 };
 
   const uniqueSignedPagesCount = new Set(placements.map((p) => p.pageNumber)).size;
 
@@ -431,6 +445,7 @@ export default function App() {
                   onPdfSelected={handlePdfSelected}
                   onLoadSample={handleLoadSamplePdf}
                   onResetPdf={handleResetPdf}
+                  onRotatePdf={handleRotatePdf}
                 />
               </div>
 
@@ -570,6 +585,8 @@ export default function App() {
                       onDuplicatePlacement={handleDuplicatePlacement}
                       onRemovePlacement={handleRemovePlacement}
                       onApplyToAllPages={handleApplyToAllPages}
+                      onRotatePage={(delta) => handleRotatePdf(currentPageIndex + 1, delta)}
+                      onRotateAllPages={(delta) => handleRotatePdf('all', delta)}
                     />
                   </div>
                 ) : (
@@ -590,6 +607,7 @@ export default function App() {
                           setCurrentPageIndex(pageIdx);
                           setCanvasViewMode('focus');
                         }}
+                        onRotatePage={(pageNum, delta) => handleRotatePdf(pageNum, delta)}
                       />
                     )}
                   </div>

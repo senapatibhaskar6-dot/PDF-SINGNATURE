@@ -1,7 +1,10 @@
 export interface PageInfo {
   pageNumber: number; // 1-indexed
-  width: number; // in points (pt)
-  height: number; // in points (pt)
+  width: number; // visual width in points (pt)
+  height: number; // visual height in points (pt)
+  unrotatedWidth: number; // unrotated media box width
+  unrotatedHeight: number; // unrotated media box height
+  rotation: number; // 0, 90, 180, 270
 }
 
 export interface PdfDocumentInfo {
