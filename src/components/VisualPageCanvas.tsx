@@ -110,7 +110,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [pdfRawBytes, pageInfo.pageNumber, pageInfo.width, scale]);
+  }, [pdfRawBytes, pageInfo.pageNumber, pageInfo.width, pageInfo.height, pageInfo.rotation, scale]);
 
   // Keyboard shortcut listener: Ctrl+C, Ctrl+V, Delete
   useEffect(() => {
@@ -280,25 +280,45 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
         </div>
 
         {/* Rotation and Duplicate Controls */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
           {onRotatePage && (
-            <div className="flex items-center gap-1 bg-white border border-blue-200 rounded-md p-0.5 shadow-2xs">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* Flip 180 button (Instantly fixes upside-down uploaded PDFs) */}
+              <button
+                type="button"
+                onClick={() => onRotatePage(180)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-white bg-emerald-600 hover:bg-emerald-700 rounded-md text-[11px] font-bold transition-all shadow-xs"
+                title="পৃষ্ঠাটো উল্টা হৈ থাকিলে ১৮০° চিধা কৰক (Flip this page 180°)"
+              >
+                <span>🔄 Flip 180° (চিধা কৰক)</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => onRotatePage(90)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-blue-800 hover:bg-blue-50 rounded text-[11px] font-semibold transition-colors"
-                title="Rotate page 90° clockwise"
+                className="inline-flex items-center gap-1 px-2 py-1 bg-white text-slate-800 hover:text-blue-700 hover:bg-blue-50 border border-slate-300 rounded-md text-[11px] font-semibold transition-colors shadow-2xs"
+                title="Rotate page 90° clockwise (সোঁফালে ঘূৰাওক)"
               >
-                <span>Rotate 90° (ঘূৰাওক ⟳)</span>
+                <span>90° ⟳</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => onRotatePage(-90)}
+                className="inline-flex items-center gap-1 px-1.5 py-1 bg-white text-slate-700 hover:bg-slate-100 border border-slate-300 rounded-md text-[11px] font-semibold transition-colors shadow-2xs"
+                title="Rotate page 90° counter-clockwise (বাওঁফালে ঘূৰাওক)"
+              >
+                <span>⟲</span>
+              </button>
+
               {onRotateAllPages && (
                 <button
                   type="button"
-                  onClick={() => onRotateAllPages(90)}
-                  className="px-1.5 py-0.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded text-[10px] transition-colors"
-                  title="Rotate all pages in document"
+                  onClick={() => onRotateAllPages(180)}
+                  className="px-2 py-1 text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-md text-[10px] font-bold transition-colors shadow-2xs"
+                  title="সকলো পৃষ্ঠা ১৮০° উল্টা চিধা কৰক (Flip all pages 180°)"
                 >
-                  All
+                  সকলো ১৮০° Flip
                 </button>
               )}
             </div>

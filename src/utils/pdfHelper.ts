@@ -122,16 +122,16 @@ export async function applySignaturesAndExport(
       };
     } else if (rot === 90) {
       drawParams = {
-        x: yScreen,
-        y: xScreen + placement.width,
+        x: yScreen + placement.height,
+        y: xScreen,
         width: placement.width,
         height: placement.height,
-        rotate: degrees(270),
+        rotate: degrees(90),
       };
     } else if (rot === 180) {
       drawParams = {
         x: W0 - xScreen,
-        y: yScreen,
+        y: yScreen + placement.height,
         width: placement.width,
         height: placement.height,
         rotate: degrees(180),
@@ -139,11 +139,11 @@ export async function applySignaturesAndExport(
     } else {
       // rot === 270
       drawParams = {
-        x: H0 - yScreen,
-        y: W0 - xScreen - placement.width,
+        x: W0 - yScreen - placement.height,
+        y: H0 - xScreen,
         width: placement.width,
         height: placement.height,
-        rotate: degrees(90),
+        rotate: degrees(270),
       };
     }
 

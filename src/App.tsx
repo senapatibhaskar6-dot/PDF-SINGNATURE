@@ -272,13 +272,35 @@ export default function App() {
     setActivePlacementId(clone.id);
   };
 
-  // Rotate PDF pages by delta (+90° or -90°)
+  // Rotate PDF pages by delta (+90°, -90°, or 180°)
   const handleRotatePdf = async (targetPage: number | 'all', deltaDegrees: number) => {
     if (!pdfInfo) return;
     try {
       const updated = await rotatePdfDocument(pdfInfo, targetPage, deltaDegrees);
       setPdfInfo(updated);
       setSignedResult(null);
+
+      // Adjust existing signature placements on the rotated page(s) so they stay on the document
+      setPlacements((prev) =>
+        prev.map((p) => {
+          if (targetPage === 'all' || targetPage === p.pageNumber) {
+            const oldPage = pdfInfo.pages[p.pageNumber - 1];
+            const newPage = updated.pages[p.pageNumber - 1];
+            if (!oldPage || !newPage) return p;
+
+            if (Math.abs(deltaDegrees) === 180) {
+              const newX = Math.max(0, Math.min(newPage.width - p.width, newPage.width - p.x - p.width));
+              const newY = Math.max(0, Math.min(newPage.height - p.height, newPage.height - p.y - p.height));
+              return { ...p, x: Math.round(newX), y: Math.round(newY) };
+            } else {
+              const newX = Math.max(0, Math.min(newPage.width - p.width, p.x));
+              const newY = Math.max(0, Math.min(newPage.height - p.height, p.y));
+              return { ...p, x: Math.round(newX), y: Math.round(newY) };
+            }
+          }
+          return p;
+        })
+      );
     } catch (err: any) {
       console.error('Failed to rotate PDF:', err);
       setErrorMessage('Failed to rotate PDF: ' + (err.message || 'Unknown error'));
@@ -608,6 +630,7 @@ export default function App() {
                           setCanvasViewMode('focus');
                         }}
                         onRotatePage={(pageNum, delta) => handleRotatePdf(pageNum, delta)}
+                        onRotateAllPages={(delta) => handleRotatePdf('all', delta)}
                       />
                     )}
                   </div>

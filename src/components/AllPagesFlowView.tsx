@@ -15,6 +15,7 @@ interface AllPagesFlowViewProps {
   onRemovePlacement: (id: string) => void;
   onFocusPage: (pageIndex: number) => void;
   onRotatePage?: (pageNumber: number, delta: number) => void;
+  onRotateAllPages?: (delta: number) => void;
 }
 
 // Single Page Item with Real PDF Canvas
@@ -72,7 +73,7 @@ const RealPdfPageCard: React.FC<{
     return () => {
       isCancelled = true;
     };
-  }, [pdfRawBytes, page.pageNumber, cardWidth]);
+  }, [pdfRawBytes, page.pageNumber, cardWidth, page.rotation, page.width, page.height]);
 
   return (
     <div
@@ -81,7 +82,7 @@ const RealPdfPageCard: React.FC<{
       }`}
     >
       {/* Page Header */}
-      <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-100">
+      <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-100 flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-slate-800">
             Page {page.pageNumber} of {totalPages} (পৃষ্ঠা {page.pageNumber})
@@ -97,7 +98,7 @@ const RealPdfPageCard: React.FC<{
           )}
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <button
             type="button"
             onClick={() => onAddPlacementToPage(page.pageNumber)}
@@ -107,14 +108,24 @@ const RealPdfPageCard: React.FC<{
             <span>+ Paste Signature</span>
           </button>
           {onRotatePage && (
-            <button
-              type="button"
-              onClick={() => onRotatePage(page.pageNumber, 90)}
-              className="p-1 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded border border-slate-200 transition-colors"
-              title="Rotate this page 90° clockwise (পৃষ্ঠা ঘূৰাওক ⟳)"
-            >
-              <RotateCw className="w-3.5 h-3.5" />
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => onRotatePage(page.pageNumber, 180)}
+                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded shadow-2xs transition-colors"
+                title="পৃষ্ঠা ১৮০° চিধা কৰক (Flip this page 180°)"
+              >
+                <span>🔄 180° Flip</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onRotatePage(page.pageNumber, 90)}
+                className="p-1 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded border border-slate-200 transition-colors"
+                title="Rotate this page 90° clockwise (পৃষ্ঠা ঘূৰাওক ⟳)"
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -244,7 +255,44 @@ const RealPdfPageCard: React.FC<{
 
 export const AllPagesFlowView: React.FC<AllPagesFlowViewProps> = (props) => {
   return (
-    <div className="space-y-6 max-h-[720px] overflow-y-auto pr-1">
+    <div className="space-y-4 max-h-[720px] overflow-y-auto pr-1">
+      {props.onRotateAllPages && (
+        <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl flex items-center justify-between flex-wrap gap-2 text-xs shadow-2xs">
+          <span className="font-bold text-amber-900 flex items-center gap-1.5">
+            <RotateCw className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>PDF ফাইল ওলোটা (Upside down) হৈ থাকিলে চিধা কৰক:</span>
+          </span>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => props.onRotateAllPages && props.onRotateAllPages(180)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg text-xs font-bold transition-all shadow-xs"
+              title="সকলো পৃষ্ঠা ১৮০° উল্টা চিধা কৰক (Flip all pages 180°)"
+            >
+              <span>🔄 সকলো পৃষ্ঠা ১৮০° Flip (চিধা কৰক)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => props.onRotateAllPages && props.onRotateAllPages(90)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white text-slate-800 hover:text-blue-700 hover:bg-blue-50 border border-slate-300 rounded-lg text-xs font-semibold transition-colors shadow-2xs"
+              title="সকলো পৃষ্ঠা ৯০° সোঁফালে ঘূৰাওক (Rotate all 90° clockwise)"
+            >
+              <RotateCw className="w-3.5 h-3.5 text-blue-600" />
+              <span>সকলো ৯০° ⟳</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => props.onRotateAllPages && props.onRotateAllPages(-90)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white text-slate-800 hover:bg-slate-100 border border-slate-300 rounded-lg text-xs font-semibold transition-colors shadow-2xs"
+              title="সকলো পৃষ্ঠা ৯০° বাওঁফালে ঘূৰাওক (Rotate all 90° counter-clockwise)"
+            >
+              <span>⟲</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {props.pages.map((page) => (
         <RealPdfPageCard
           key={page.pageNumber}
