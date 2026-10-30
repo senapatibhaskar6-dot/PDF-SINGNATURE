@@ -388,16 +388,62 @@ export default function App() {
     setCurrentPageIndex(lastPageNum - 1);
   };
 
-  // Manual Jump to specific page
+  // Manual Jump to specific page with automatic signature replication & save option
   const handleJumpToPage = (pageNum: number) => {
     if (!pdfInfo) return;
-    const target = Math.max(1, Math.min(pdfInfo.pageCount, pageNum));
-    setCurrentPageIndex(target - 1);
-    const existing = placements.find((p) => p.pageNumber === target);
-    if (existing) {
-      setActivePlacementId(existing.id);
+    const currentPg = currentPageIndex + 1;
+    const total = pdfInfo.pageCount;
+    let target = Math.max(1, Math.min(total, pageNum));
+
+    // If target entered is same as current page, clicking Go / Enter advances to next page!
+    if (target === currentPg && currentPg < total) {
+      target = currentPg + 1;
     }
-    setQuickToast(`পৃষ্ঠা ${target} লৈ যোৱা হ'ল (Page ${target})`);
+
+    // Current page placement to save & replicate
+    const currentPlacement =
+      placements.find((p) => p.id === activePlacementId && p.pageNumber === currentPg) ||
+      placements.find((p) => p.pageNumber === currentPg);
+
+    // Target page placement check
+    const existingTargetPlacement = placements.find((p) => p.pageNumber === target);
+
+    if (existingTargetPlacement) {
+      setCurrentPageIndex(target - 1);
+      setActivePlacementId(existingTargetPlacement.id);
+      setQuickToast(`✅ পৃষ্ঠা ${currentPg} সংৰক্ষিত! পৃষ্ঠা ${target} ত চহী সাজু (Go / Enter ↵)`);
+    } else if (currentPlacement) {
+      // Automatically replicate placement onto target page at exact coordinates
+      const newPlacement: SignaturePlacement = {
+        ...currentPlacement,
+        id: `placement-p${target}-${Date.now()}`,
+        pageNumber: target,
+      };
+      setPlacements((prev) => [...prev, newPlacement]);
+      setCurrentPageIndex(target - 1);
+      setActivePlacementId(newPlacement.id);
+      setQuickToast(`✅ পৃষ্ঠা ${currentPg} সংৰক্ষিত! পৃষ্ঠা ${target} ত চহী বহিল (Go / Enter ↵)`);
+    } else if (signature) {
+      const targetPageInfo = pdfInfo.pages[target - 1] || pdfInfo.pages[0];
+      const sigW = Math.min(170, Math.round(targetPageInfo.width * 0.3));
+      const sigH = Math.round(sigW / signature.aspectRatio);
+      const newPlacement: SignaturePlacement = {
+        id: `placement-p${target}-${Date.now()}`,
+        pageNumber: target,
+        x: Math.max(54, targetPageInfo.width - sigW - 54),
+        y: 70,
+        width: sigW,
+        height: sigH,
+        origin: 'bottom-left',
+      };
+      setPlacements((prev) => [...prev, newPlacement]);
+      setCurrentPageIndex(target - 1);
+      setActivePlacementId(newPlacement.id);
+      setQuickToast(`✅ পৃষ্ঠা ${target} ত চহী বহিল (Go / Enter ↵)`);
+    } else {
+      setCurrentPageIndex(target - 1);
+      setQuickToast(`পৃষ্ঠা ${target} লৈ যোৱা হ'ল (Page ${target})`);
+    }
   };
 
   // Automatic Save & Move to Next Page workflow requested by user:

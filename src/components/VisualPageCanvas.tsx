@@ -151,6 +151,18 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     setPageJumpInput(String(pageInfo.pageNumber));
   }, [pageInfo.pageNumber]);
 
+  // Handle clicking "Go ➔" or pressing Enter in page input:
+  // Saves current page signature & advances to specified page (or next page if same number), replicating the signature!
+  const handleExecuteGo = () => {
+    const rawTarget = parseInt(pageJumpInput, 10);
+    const target = isNaN(rawTarget) ? pageInfo.pageNumber + 1 : rawTarget;
+    if (onJumpToPage) {
+      onJumpToPage(target);
+    } else if (onSaveAndNextPage) {
+      onSaveAndNextPage();
+    }
+  };
+
   // Keyboard shortcut listener: Ctrl+C, Ctrl+V, Delete, Enter (Save & Next)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -162,11 +174,8 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
 
         if (activeElem?.getAttribute('data-page-jump') === 'true') {
           e.preventDefault();
-          const target = parseInt(pageJumpInput, 10);
-          if (!isNaN(target) && onJumpToPage) {
-            onJumpToPage(target);
-            (activeElem as HTMLElement)?.blur();
-          }
+          handleExecuteGo();
+          (activeElem as HTMLElement)?.blur();
           return;
         }
 
@@ -202,7 +211,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activePlacementId, onDuplicatePlacement, onRemovePlacement, placements.length, pageJumpInput, onJumpToPage, onSaveAndNextPage]);
+  }, [activePlacementId, onDuplicatePlacement, onRemovePlacement, placements.length, pageJumpInput, onJumpToPage, onSaveAndNextPage, pageInfo.pageNumber]);
 
   // Filter placements belonging to this page
   const pagePlacements = placements.filter((p) => p.pageNumber === pageInfo.pageNumber);
@@ -371,30 +380,25 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  const target = parseInt(pageJumpInput, 10);
-                  if (!isNaN(target) && onJumpToPage) {
-                    onJumpToPage(target);
-                  }
+                  e.stopPropagation();
+                  handleExecuteGo();
+                  (e.target as HTMLElement)?.blur();
                 }
               }}
               className="w-14 text-center text-xs font-mono font-bold bg-white border border-slate-300 rounded-md py-0.5 text-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 shadow-2xs"
-              title="পৃষ্ঠা নম্বৰ লিখক আৰু Enter টিপক"
+              title="পৃষ্ঠা নম্বৰ লিখক আৰু Go ক্লিক কৰক বা Enter টিপক"
             />
             <span className="text-xs font-mono text-slate-500 font-semibold">
               / {totalPages || 1}
             </span>
             <button
               type="button"
-              onClick={() => {
-                const target = parseInt(pageJumpInput, 10);
-                if (!isNaN(target) && onJumpToPage) {
-                  onJumpToPage(target);
-                }
-              }}
-              className="px-2.5 py-1 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors shadow-2xs"
-              title="এই পৃষ্ঠা দেখুৱাওক (Go to page)"
+              onClick={handleExecuteGo}
+              className="px-2.5 py-1 text-xs font-bold bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-md transition-all shadow-2xs cursor-pointer flex items-center gap-1 active:scale-95"
+              title="চহী সংৰক্ষণ কৰি এই পৃষ্ঠা / Next পৃষ্ঠালৈ যাওক (Go & Save to next page)"
             >
-              Go ➔
+              <span>Go</span>
+              <span>➔</span>
             </button>
           </div>
 
