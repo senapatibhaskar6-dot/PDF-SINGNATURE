@@ -1,6 +1,6 @@
 {
   "name": "SignFlow - Multi-Page PDF Signer",
-  "description": "Upload PDFs and signatures, automatically remove backgrounds, place signatures across multiple pages with custom coordinates, and export signed documents.",
+  "description": "Upload PDFs and signatures, batch sign across 200+ pages at once, compress heavy 350 MB documents to 800 KB with high-regulation quality, and export signed PDFs.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

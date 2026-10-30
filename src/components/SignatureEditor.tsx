@@ -126,18 +126,26 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
     await reprocess(sampleDataUrl);
   };
 
-  // Drawing pad handlers
+  // Drawing pad handlers (optimized for mobile touch and desktop pointer)
   const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = drawCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore if pointer capture not supported
+    }
+
     setIsDrawing(true);
     setHasDrawnContent(true);
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
 
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -155,8 +163,10 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
     if (!ctx) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
 
     ctx.lineTo(x, y);
     ctx.stroke();

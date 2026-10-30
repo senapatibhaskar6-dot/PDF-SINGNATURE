@@ -12,6 +12,7 @@ import {
   ArrowUpLeft,
   ClipboardPaste,
   Layers,
+  Zap,
 } from 'lucide-react';
 
 interface PlacementListProps {
@@ -25,6 +26,7 @@ interface PlacementListProps {
   onDuplicatePlacement: (id: string) => void;
   onApplyToAllPages: (basePlacementId: string) => void;
   onApplyToLastPage: (basePlacementId: string) => void;
+  onOpenBatchModal?: () => void;
 }
 
 export const PlacementList: React.FC<PlacementListProps> = ({
@@ -38,6 +40,7 @@ export const PlacementList: React.FC<PlacementListProps> = ({
   onDuplicatePlacement,
   onApplyToAllPages,
   onApplyToLastPage,
+  onOpenBatchModal,
 }) => {
   const pageCount = pages.length;
   const [showAdvancedCoords, setShowAdvancedCoords] = useState<boolean>(false);
@@ -121,8 +124,19 @@ export const PlacementList: React.FC<PlacementListProps> = ({
             className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-2xs transition-colors"
           >
             <Copy className="w-3.5 h-3.5" />
-            <span>Copy & Paste to All Pages (সকলো পৃষ্ঠাত পেষ্ট কৰক)</span>
+            <span>Copy & Paste to All Pages (সকলো পৃষ্ঠাত পেষ্ট)</span>
           </button>
+
+          {onOpenBatchModal && (
+            <button
+              type="button"
+              onClick={onOpenBatchModal}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white font-bold rounded-lg shadow-xs transition-all"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-300" />
+              <span>⚡ Batch Sign 200 Pages (২০০ পৃষ্ঠাত চহী)</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -130,10 +144,10 @@ export const PlacementList: React.FC<PlacementListProps> = ({
               const targetId = activePlacementId || placements[0]?.id;
               if (targetId) onApplyToLastPage(targetId);
             }}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white hover:bg-slate-50 border border-blue-300 text-blue-900 font-medium rounded-lg shadow-2xs transition-colors"
+            className="w-full sm:col-span-2 flex items-center justify-center gap-2 px-3 py-2 bg-white hover:bg-slate-50 border border-blue-300 text-blue-900 font-medium rounded-lg shadow-2xs transition-colors"
           >
             <CheckCheck className="w-3.5 h-3.5 text-blue-600" />
-            <span>Paste on Last Page (কেৱল শেষৰ পৃষ্ঠাত)</span>
+            <span>Paste on Last Page (কেৱল শেষৰ পৃষ্ঠাত পেষ্ট কৰক)</span>
           </button>
         </div>
       </div>

@@ -9,6 +9,8 @@ import {
   RefreshCw,
   Hand,
   Maximize2,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 
 interface VisualPageCanvasProps {
@@ -46,6 +48,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [scale, setScale] = useState<number>(1);
+  const [zoomMultiplier, setZoomMultiplier] = useState<number>(1);
   const [isPdfRendering, setIsPdfRendering] = useState<boolean>(false);
   const [renderError, setRenderError] = useState<string | null>(null);
 
@@ -61,20 +64,20 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     initialH: number;
   } | null>(null);
 
-  // Compute container scale to fit responsive frame
+  // Compute container scale to fit mobile and desktop responsive frame
   useEffect(() => {
     const updateScale = () => {
       if (!containerRef.current) return;
       const containerWidth = containerRef.current.clientWidth;
-      const availableW = Math.max(300, containerWidth - 24);
-      const computedScale = availableW / pageInfo.width;
-      setScale(Math.min(1.4, Math.max(0.4, computedScale)));
+      const availableW = containerWidth > 40 ? Math.max(200, containerWidth - 16) : 300;
+      const baseScale = availableW / pageInfo.width;
+      setScale(Math.min(1.8, Math.max(0.25, baseScale * zoomMultiplier)));
     };
 
     updateScale();
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
-  }, [pageInfo.width]);
+  }, [pageInfo.width, zoomMultiplier]);
 
   // Render REAL PDF content onto canvas whenever page or pdf changes
   useEffect(() => {
@@ -323,6 +326,29 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
               )}
             </div>
           )}
+
+          {/* Zoom controls (especially useful on mobile) */}
+          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-md p-0.5">
+            <button
+              type="button"
+              onClick={() => setZoomMultiplier((prev) => Math.max(0.6, prev - 0.2))}
+              className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded"
+              title="Zoom Out (জুম সৰু কৰক)"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-[10px] font-mono font-semibold px-1 text-slate-700">
+              {Math.round(zoomMultiplier * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={() => setZoomMultiplier((prev) => Math.min(2.5, prev + 0.2))}
+              className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded"
+              title="Zoom In (জুম ডাঙৰ কৰক)"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
           {activePlacementId && onDuplicatePlacement && (
             <button

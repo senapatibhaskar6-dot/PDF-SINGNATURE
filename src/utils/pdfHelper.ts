@@ -1,5 +1,12 @@
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
-import { PdfDocumentInfo, SignaturePlacement, PageInfo } from '../types';
+import {
+  PdfDocumentInfo,
+  SignaturePlacement,
+  PageInfo,
+  PdfCompressionOptions,
+  BatchSigningConfig,
+} from '../types';
+import { compressPdfDocument, CompressionProgressInfo } from './pdfCompressor';
 
 /**
  * Loads a PDF file and extracts page counts, rotation angles, and dimensions in points.
@@ -71,24 +78,119 @@ export async function rotatePdfDocument(
     }
   }
 
-  const newBytes = await pdfDoc.save();
+  const newBytes = await pdfDoc.save({ useObjectStreams: true });
   return loadPdfDocument(newBytes, pdfInfo.name);
+}
+
+/**
+ * Generates signature placements across multiple pages (e.g., 200 pages at once)
+ * based on position presets or coordinates.
+ */
+export function batchApplySignaturesToDocument(
+  pages: PageInfo[],
+  config: BatchSigningConfig,
+  signatureAspectRatio: number,
+  basePlacement?: SignaturePlacement
+): SignaturePlacement[] {
+  const totalPages = pages.length;
+  let targetPages: number[] = [];
+
+  if (config.scope === 'all') {
+    targetPages = Array.from({ length: totalPages }, (_, i) => i + 1);
+  } else if (config.scope === 'range') {
+    const start = Math.max(1, config.rangeStart || 1);
+    const end = Math.min(totalPages, config.rangeEnd || totalPages);
+    for (let p = start; p <= end; p++) {
+      targetPages.push(p);
+    }
+  } else if (config.scope === 'odd') {
+    targetPages = Array.from({ length: totalPages }, (_, i) => i + 1).filter((p) => p % 2 !== 0);
+  } else if (config.scope === 'even') {
+    targetPages = Array.from({ length: totalPages }, (_, i) => i + 1).filter((p) => p % 2 === 0);
+  } else if (config.scope === 'last_only') {
+    targetPages = [totalPages];
+  }
+
+  const result: SignaturePlacement[] = [];
+
+  for (const pageNum of targetPages) {
+    const pageMeta = pages.find((p) => p.pageNumber === pageNum) || pages[0];
+    const width = config.width || basePlacement?.width || Math.min(160, Math.round(pageMeta.width * 0.28));
+    const height = config.height || (basePlacement ? basePlacement.height : Math.round(width / (signatureAspectRatio || 2.8)));
+
+    const margin = 50;
+    let x = margin;
+    let y = margin;
+
+    if (config.positionPreset === 'bottom-right') {
+      x = Math.max(margin, pageMeta.width - width - margin);
+      y = margin;
+    } else if (config.positionPreset === 'bottom-left') {
+      x = margin;
+      y = margin;
+    } else if (config.positionPreset === 'bottom-center') {
+      x = Math.max(margin, Math.round((pageMeta.width - width) / 2));
+      y = margin;
+    } else if (config.positionPreset === 'top-right') {
+      x = Math.max(margin, pageMeta.width - width - margin);
+      y = Math.max(margin, pageMeta.height - height - margin);
+    } else if (config.positionPreset === 'same_as_current' && basePlacement) {
+      x = Math.min(pageMeta.width - width, basePlacement.x);
+      y = Math.min(pageMeta.height - height, basePlacement.y);
+    } else {
+      // Default to bottom right
+      x = Math.max(margin, pageMeta.width - width - margin);
+      y = margin;
+    }
+
+    result.push({
+      id: `batch-p${pageNum}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      pageNumber: pageNum,
+      x,
+      y,
+      width,
+      height,
+      origin: 'bottom-left',
+    });
+  }
+
+  return result;
 }
 
 /**
  * Embeds the transparent signature onto the specified pages and coordinates,
  * taking into account page rotation so signatures appear upright and in the exact position.
+ * Supports bulk placement on up to 200+ pages and optional high-regulation compression.
  */
 export async function applySignaturesAndExport(
   pdfDocInfo: PdfDocumentInfo,
   signaturePngBytes: Uint8Array,
-  placements: SignaturePlacement[]
-): Promise<{ bytes: Uint8Array; blob: Blob; url: string }> {
-  const pdfDoc = await PDFDocument.load(pdfDocInfo.rawBytes);
+  placements: SignaturePlacement[],
+  compressionOptions?: PdfCompressionOptions,
+  onProgress?: (progress: CompressionProgressInfo) => void
+): Promise<{
+  bytes: Uint8Array;
+  blob: Blob;
+  url: string;
+  originalSize: number;
+  finalSize: number;
+  reductionPercentage: number;
+  isCompressed: boolean;
+}> {
+  const originalSize = pdfDocInfo.rawBytes.byteLength;
+  const pdfDoc = await PDFDocument.load(pdfDocInfo.rawBytes, { ignoreEncryption: true });
   const totalPages = pdfDoc.getPageCount();
+
+  onProgress?.({
+    current: 0,
+    total: placements.length,
+    percentage: 10,
+    statusText: `Embedding signatures across ${placements.length} page instances (${placements.length} টা স্থানত চহী বহুওৱা হৈছে)...`,
+  });
 
   const pngImage = await pdfDoc.embedPng(signaturePngBytes);
 
+  let processedCount = 0;
   for (const placement of placements) {
     const pageIndex = placement.pageNumber - 1;
     if (pageIndex < 0 || pageIndex >= totalPages) {
@@ -148,27 +250,85 @@ export async function applySignaturesAndExport(
     }
 
     page.drawImage(pngImage, drawParams);
+
+    processedCount++;
+    if (processedCount % 10 === 0 || processedCount === placements.length) {
+      onProgress?.({
+        current: processedCount,
+        total: placements.length,
+        percentage: Math.round((processedCount / placements.length) * (compressionOptions?.enabled ? 40 : 90)),
+        statusText: `Applied signature to ${processedCount} of ${placements.length} pages (${processedCount}/${placements.length} পৃষ্ঠা সম্পূৰ্ণ)...`,
+      });
+      if (processedCount % 25 === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
   }
 
-  const signedBytes = await pdfDoc.save();
+  // Save base signed document
+  const signedBytes = await pdfDoc.save({ useObjectStreams: true });
+
+  // If compression is requested (e.g. 350 MB to 800 KB, or target size), run compressor engine
+  if (compressionOptions?.enabled) {
+    onProgress?.({
+      current: 0,
+      total: totalPages,
+      percentage: 45,
+      statusText: `Starting high-regulation quality compression to ~${compressionOptions.targetSizeKb} KB (৮০০ KB কম্প্ৰেছন চলি আছে)...`,
+    });
+
+    const compressResult = await compressPdfDocument(
+      signedBytes,
+      compressionOptions,
+      (prog) => {
+        onProgress?.({
+          current: prog.current,
+          total: prog.total,
+          percentage: 45 + Math.round(prog.percentage * 0.53),
+          statusText: prog.statusText,
+        });
+      }
+    );
+
+    return {
+      bytes: compressResult.bytes,
+      blob: compressResult.blob,
+      url: compressResult.url,
+      originalSize,
+      finalSize: compressResult.compressedBytes,
+      reductionPercentage: compressResult.reductionPercentage,
+      isCompressed: true,
+    };
+  }
+
+  // Standard non-compressed export
   const blob = new Blob([signedBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
   const url = URL.createObjectURL(blob);
+
+  onProgress?.({
+    current: placements.length,
+    total: placements.length,
+    percentage: 100,
+    statusText: 'Signed PDF ready for download!',
+  });
 
   return {
     bytes: signedBytes,
     blob,
     url,
+    originalSize,
+    finalSize: signedBytes.byteLength,
+    reductionPercentage: 0,
+    isCompressed: false,
   };
 }
 
 /**
- * Creates a clean, realistic multi-page demo PDF (Master Services Agreement)
- * so users can test multi-page signatures immediately.
+ * Creates a clean multi-page demo PDF (Master Services Agreement).
  */
 export async function createSamplePdf(): Promise<PdfDocumentInfo> {
   const pdfDoc = await PDFDocument.create();
   const timesFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-  const timesBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
   const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
@@ -176,172 +336,46 @@ export async function createSamplePdf(): Promise<PdfDocumentInfo> {
   const mutedColor = rgb(0.4, 0.45, 0.5);
   const lineColor = rgb(0.85, 0.88, 0.92);
 
-  // PAGE 1: Agreement Overview & Recitals
-  const page1 = pdfDoc.addPage([612, 792]); // Standard US Letter
-  page1.drawText('MASTER SERVICES AGREEMENT', {
-    x: 54,
-    y: 720,
-    size: 18,
-    font: helveticaBold,
-    color: primaryColor,
-  });
-
-  page1.drawText('Document ID: MSA-2026-0849  ·  Execution Copy', {
-    x: 54,
-    y: 700,
-    size: 10,
-    font: helvetica,
-    color: mutedColor,
-  });
-
-  page1.drawLine({
-    start: { x: 54, y: 685 },
-    end: { x: 558, y: 685 },
-    thickness: 1,
-    color: lineColor,
-  });
-
-  const p1Text = [
-    'This Master Services Agreement ("Agreement") is entered into as of the Effective Date by and between',
-    'Acrobatix Cloud Inc., a Delaware corporation ("Provider"), and the undersigned client entity ("Client").',
-    '',
-    '1. SCOPE OF SERVICES & DELIVERABLES',
-    'Provider shall furnish professional digital solutions, document processing workflows, and verification',
-    'services described in associated Statements of Work. All deliverables shall adhere to rigorous security',
-    'and compliance specifications set forth in Schedule A.',
-    '',
-    '2. TERM AND TERMINATION',
-    'This Agreement shall commence on the Effective Date and remain in full force for twelve (12) months,',
-    'automatically renewing unless either party delivers written notice of non-renewal at least thirty (30) days',
-    'prior to expiration.',
-    '',
-    '3. CONFIDENTIAL INFORMATION',
-    'Each party acknowledges that during the engagement it may receive non-public, proprietary information.',
-    'Both parties agree to hold all Confidential Information in strict confidence using no less than reasonable care.',
-  ];
-
-  let currentY = 650;
-  for (const line of p1Text) {
-    if (line.startsWith('1.') || line.startsWith('2.') || line.startsWith('3.')) {
-      page1.drawText(line, { x: 54, y: currentY, size: 11, font: timesBold, color: primaryColor });
-      currentY -= 16;
-    } else if (line === '') {
-      currentY -= 10;
-    } else {
-      page1.drawText(line, { x: 54, y: currentY, size: 10, font: timesFont, color: rgb(0.2, 0.2, 0.2) });
-      currentY -= 14;
-    }
-  }
-
-  // Initial block on page 1 footer
+  // PAGE 1
+  const page1 = pdfDoc.addPage([612, 792]);
+  page1.drawText('MASTER SERVICES AGREEMENT', { x: 54, y: 720, size: 18, font: helveticaBold, color: primaryColor });
+  page1.drawText('Document Reference: MSA-2026-88402', { x: 54, y: 700, size: 10, font: helvetica, color: mutedColor });
+  page1.drawLine({ start: { x: 54, y: 685 }, end: { x: 558, y: 685 }, thickness: 1, color: lineColor });
+  page1.drawText('This Master Services Agreement is entered into by and between the Client and Provider.', { x: 54, y: 650, size: 10, font: timesFont, color: primaryColor });
   page1.drawLine({ start: { x: 54, y: 80 }, end: { x: 558, y: 80 }, thickness: 0.5, color: lineColor });
-  page1.drawText('Page 1 of 3  ·  Client Initial:', { x: 54, y: 60, size: 9, font: helvetica, color: mutedColor });
+  page1.drawText('Page 1 of 3  ·  Initial:', { x: 54, y: 60, size: 9, font: helvetica, color: mutedColor });
   page1.drawRectangle({ x: 180, y: 52, width: 90, height: 22, borderColor: rgb(0.7, 0.75, 0.8), borderWidth: 1 });
-  page1.drawText('Authorized Initial', { x: 190, y: 58, size: 8, font: helvetica, color: rgb(0.7, 0.75, 0.8) });
 
-  // PAGE 2: Representations & Warranties
+  // PAGE 2
   const page2 = pdfDoc.addPage([612, 792]);
-  page2.drawText('MASTER SERVICES AGREEMENT (Continued)', {
-    x: 54,
-    y: 720,
-    size: 14,
-    font: helveticaBold,
-    color: primaryColor,
-  });
-
-  page2.drawLine({
-    start: { x: 54, y: 700 },
-    end: { x: 558, y: 700 },
-    thickness: 1,
-    color: lineColor,
-  });
-
-  const p2Text = [
-    '4. INTELLECTUAL PROPERTY & OWNERSHIP',
-    'All right, title, and interest in and to pre-existing technology and work product shall remain solely',
-    'with Provider. Upon receipt of full payment, Client receives a non-exclusive license to use deliverables',
-    'for its internal business operations.',
-    '',
-    '5. INDEMNIFICATION AND LIMITATION OF LIABILITY',
-    'Neither party shall be liable for indirect, incidental, special, or consequential damages arising out of',
-    'or in connection with this agreement. Provider total liability under this contract shall not exceed fees',
-    'paid in the preceding six (6) month period.',
-    '',
-    '6. GOVERNING LAW AND DISPUTE RESOLUTION',
-    'This Agreement shall be governed by and construed in accordance with the laws of the State of California,',
-    'without reference to conflict of laws principles. Any arbitration shall take place in San Francisco.',
-  ];
-
-  currentY = 660;
-  for (const line of p2Text) {
-    if (line.startsWith('4.') || line.startsWith('5.') || line.startsWith('6.')) {
-      page2.drawText(line, { x: 54, y: currentY, size: 11, font: timesBold, color: primaryColor });
-      currentY -= 16;
-    } else if (line === '') {
-      currentY -= 10;
-    } else {
-      page2.drawText(line, { x: 54, y: currentY, size: 10, font: timesFont, color: rgb(0.2, 0.2, 0.2) });
-      currentY -= 14;
-    }
-  }
-
+  page2.drawText('TERMS OF SERVICE AND SERVICE LEVELS', { x: 54, y: 720, size: 14, font: helveticaBold, color: primaryColor });
+  page2.drawLine({ start: { x: 54, y: 700 }, end: { x: 558, y: 700 }, thickness: 1, color: lineColor });
+  page2.drawText('Section 3: Uptime SLA, Privacy Guarantees and Verification Compliance.', { x: 54, y: 660, size: 10, font: timesFont, color: primaryColor });
   page2.drawLine({ start: { x: 54, y: 80 }, end: { x: 558, y: 80 }, thickness: 0.5, color: lineColor });
-  page2.drawText('Page 2 of 3  ·  Client Initial:', { x: 54, y: 60, size: 9, font: helvetica, color: mutedColor });
+  page2.drawText('Page 2 of 3  ·  Initial:', { x: 54, y: 60, size: 9, font: helvetica, color: mutedColor });
   page2.drawRectangle({ x: 180, y: 52, width: 90, height: 22, borderColor: rgb(0.7, 0.75, 0.8), borderWidth: 1 });
-  page2.drawText('Authorized Initial', { x: 190, y: 58, size: 8, font: helvetica, color: rgb(0.7, 0.75, 0.8) });
 
   // PAGE 3: Execution and Signatures
   const page3 = pdfDoc.addPage([612, 792]);
-  page3.drawText('EXECUTION AND SIGNATURE ATTESTATION', {
-    x: 54,
-    y: 720,
-    size: 14,
-    font: helveticaBold,
-    color: primaryColor,
-  });
+  page3.drawText('EXECUTION AND SIGNATURE ATTESTATION', { x: 54, y: 720, size: 14, font: helveticaBold, color: primaryColor });
+  page3.drawLine({ start: { x: 54, y: 700 }, end: { x: 558, y: 700 }, thickness: 1, color: lineColor });
+  page3.drawText('IN WITNESS WHEREOF, the parties hereto execute this Agreement.', { x: 54, y: 660, size: 10, font: timesFont, color: primaryColor });
 
-  page3.drawLine({
-    start: { x: 54, y: 700 },
-    end: { x: 558, y: 700 },
-    thickness: 1,
-    color: lineColor,
-  });
-
-  page3.drawText(
-    'IN WITNESS WHEREOF, the parties hereto have caused this Agreement to be executed by their duly authorized representatives.',
-    { x: 54, y: 660, size: 10, font: timesFont, color: rgb(0.2, 0.2, 0.2) }
-  );
-
-  // Provider Signature block (Left)
-  page3.drawText('PROVIDER:', { x: 54, y: 580, size: 11, font: helveticaBold, color: primaryColor });
-  page3.drawText('Acrobatix Cloud Inc.', { x: 54, y: 560, size: 10, font: helvetica, color: primaryColor });
+  // Provider
+  page3.drawText('PROVIDER: Acrobatix Inc.', { x: 54, y: 560, size: 10, font: helveticaBold, color: primaryColor });
   page3.drawLine({ start: { x: 54, y: 490 }, end: { x: 260, y: 490 }, thickness: 1, color: primaryColor });
   page3.drawText('Authorized Signature (Pre-signed)', { x: 54, y: 475, size: 9, font: helvetica, color: mutedColor });
-  page3.drawText('Name: Sarah Jenkins, VP Operations', { x: 54, y: 455, size: 9, font: helvetica, color: primaryColor });
-  page3.drawText('Date: October 20, 2026', { x: 54, y: 435, size: 9, font: helvetica, color: primaryColor });
 
-  // Client Signature block (Right) -> Where user places signature!
-  page3.drawText('CLIENT (Sign Below):', { x: 310, y: 580, size: 11, font: helveticaBold, color: primaryColor });
-  page3.drawText('Client Organization Entity', { x: 310, y: 560, size: 10, font: helvetica, color: primaryColor });
-  page3.drawRectangle({
-    x: 310,
-    y: 485,
-    width: 210,
-    height: 60,
-    borderColor: rgb(0.2, 0.4, 0.8),
-    borderWidth: 1,
-    borderDashArray: [4, 4],
-  });
-  page3.drawText('Recommended Signature Placement Area', { x: 320, y: 512, size: 8, font: helvetica, color: rgb(0.3, 0.4, 0.7) });
-  page3.drawLine({ start: { x: 310, y: 480 }, end: { x: 520, y: 480 }, thickness: 1, color: primaryColor });
+  // Client Box
+  page3.drawText('CLIENT (Sign Below):', { x: 310, y: 560, size: 10, font: helveticaBold, color: primaryColor });
+  page3.drawRectangle({ x: 310, y: 485, width: 200, height: 60, borderColor: rgb(0.2, 0.4, 0.8), borderWidth: 1, borderDashArray: [4, 4] });
+  page3.drawLine({ start: { x: 310, y: 480 }, end: { x: 510, y: 480 }, thickness: 1, color: primaryColor });
   page3.drawText('Authorized Representative Signature', { x: 310, y: 465, size: 9, font: helvetica, color: mutedColor });
-  page3.drawText('Name: Alexander Wright, Chief Legal Officer', { x: 310, y: 445, size: 9, font: helvetica, color: primaryColor });
-  page3.drawText('Date: October 21, 2026', { x: 310, y: 425, size: 9, font: helvetica, color: primaryColor });
 
   page3.drawLine({ start: { x: 54, y: 80 }, end: { x: 558, y: 80 }, thickness: 0.5, color: lineColor });
-  page3.drawText('Page 3 of 3  ·  Final Attestation', { x: 54, y: 60, size: 9, font: helvetica, color: mutedColor });
+  page3.drawText('Page 3 of 3  ·  Final Execution', { x: 54, y: 60, size: 9, font: helvetica, color: mutedColor });
 
-  const rawBytes = await pdfDoc.save();
+  const rawBytes = await pdfDoc.save({ useObjectStreams: true });
 
   return {
     name: 'Master_Services_Agreement_Execution.pdf',
@@ -352,6 +386,103 @@ export async function createSamplePdf(): Promise<PdfDocumentInfo> {
       { pageNumber: 2, width: 612, height: 792, unrotatedWidth: 612, unrotatedHeight: 792, rotation: 0 },
       { pageNumber: 3, width: 612, height: 792, unrotatedWidth: 612, unrotatedHeight: 792, rotation: 0 },
     ],
+    rawBytes,
+  };
+}
+
+/**
+ * Creates a high-capacity multi-page document (up to 200 pages)
+ * so users can test 200-page batch signing and compression.
+ */
+export async function createLargeSamplePdf(
+  pageCount: number = 200,
+  onProgress?: (percent: number) => void
+): Promise<PdfDocumentInfo> {
+  const pdfDoc = await PDFDocument.create();
+  const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const pagesInfo: PageInfo[] = [];
+
+  for (let i = 1; i <= pageCount; i++) {
+    const page = pdfDoc.addPage([612, 792]);
+    page.drawText(`OFFICIAL BATCH RECORD / DOCUMENT REGISTER`, {
+      x: 54,
+      y: 730,
+      size: 14,
+      font: helveticaBold,
+      color: rgb(0.1, 0.2, 0.35),
+    });
+    page.drawText(`Page Number: ${i} of ${pageCount} (পৃষ্ঠা সংখ্যা: ${i}/${pageCount})  ·  Batch Ref #B200-${1000 + i}`, {
+      x: 54,
+      y: 710,
+      size: 9,
+      font: helvetica,
+      color: rgb(0.4, 0.45, 0.5),
+    });
+    page.drawLine({
+      start: { x: 54, y: 695 },
+      end: { x: 558, y: 695 },
+      thickness: 1,
+      color: rgb(0.85, 0.88, 0.92),
+    });
+
+    // Content lines
+    page.drawText(`This document page is part of the 200-page verified enterprise dossier.`, {
+      x: 54,
+      y: 660,
+      size: 10,
+      font: helvetica,
+      color: rgb(0.2, 0.2, 0.2),
+    });
+    page.drawText(`Audit certification checkpoint #${i} verified. All legal requirements attested.`, {
+      x: 54,
+      y: 640,
+      size: 10,
+      font: helvetica,
+      color: rgb(0.3, 0.3, 0.3),
+    });
+
+    // Signature Area guide on bottom right
+    page.drawRectangle({
+      x: 350,
+      y: 60,
+      width: 170,
+      height: 55,
+      borderColor: rgb(0.3, 0.5, 0.8),
+      borderWidth: 1,
+      borderDashArray: [3, 3],
+    });
+    page.drawText(`Signatory Line (Page ${i})`, {
+      x: 355,
+      y: 120,
+      size: 8,
+      font: helvetica,
+      color: rgb(0.3, 0.4, 0.7),
+    });
+
+    pagesInfo.push({
+      pageNumber: i,
+      width: 612,
+      height: 792,
+      unrotatedWidth: 612,
+      unrotatedHeight: 792,
+      rotation: 0,
+    });
+
+    if (i % 20 === 0 || i === pageCount) {
+      onProgress?.(Math.round((i / pageCount) * 100));
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
+  const rawBytes = await pdfDoc.save({ useObjectStreams: true });
+
+  return {
+    name: `Official_Document_${pageCount}_Pages.pdf`,
+    size: rawBytes.byteLength,
+    pageCount,
+    pages: pagesInfo,
     rawBytes,
   };
 }

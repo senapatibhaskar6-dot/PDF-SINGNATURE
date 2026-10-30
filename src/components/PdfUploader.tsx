@@ -1,15 +1,17 @@
 import React, { useRef } from 'react';
 import { PdfDocumentInfo } from '../types';
-import { FileText, Sparkles, CheckCircle2, RefreshCw, RotateCw, RotateCcw, Camera } from 'lucide-react';
+import { FileText, Sparkles, CheckCircle2, RefreshCw, RotateCw, RotateCcw, Camera, Zap, Shrink } from 'lucide-react';
 
 interface PdfUploaderProps {
   pdfInfo: PdfDocumentInfo | null;
   isLoading: boolean;
   onPdfSelected: (file: File) => void;
   onLoadSample: () => void;
+  onLoad200PagesSample?: () => void;
   onResetPdf: () => void;
   onRotatePdf?: (targetPage: number | 'all', angleDelta: number) => void;
   onOpenScanner?: () => void;
+  onOpenCompressor?: () => void;
 }
 
 export const PdfUploader: React.FC<PdfUploaderProps> = ({
@@ -17,9 +19,11 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
   isLoading,
   onPdfSelected,
   onLoadSample,
+  onLoad200PagesSample,
   onResetPdf,
   onRotatePdf,
   onOpenScanner,
+  onOpenCompressor,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -51,7 +55,19 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {onOpenCompressor && pdfInfo && (
+            <button
+              onClick={onOpenCompressor}
+              type="button"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-colors"
+              title="Compress this PDF to 800 KB"
+            >
+              <Zap className="w-3.5 h-3.5 text-emerald-600" />
+              <span>৮০০ KB কম্প্ৰেছ (Compress)</span>
+            </button>
+          )}
+
           {onOpenScanner && (
             <button
               onClick={onOpenScanner}
@@ -104,10 +120,10 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
           </div>
 
           <p className="text-xs font-semibold text-slate-800 mb-1">
-            Click to upload PDF or drag and drop
+            Click to upload PDF (including large 350 MB files) or drag & drop
           </p>
           <p className="text-[11px] text-slate-500 mb-3">
-            Pure client-side processing — your files never leave your device
+            Pure client-side processing — 350 MB ফাইল ৮০০ KB লৈ কম্প্ৰেছ কৰক আৰু ২০০ পৃষ্ঠাত চহী বহুৱাওক
           </p>
 
           <div className="flex items-center justify-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
@@ -115,10 +131,23 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
               <button
                 type="button"
                 onClick={onOpenScanner}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
               >
                 <Camera className="w-3.5 h-3.5" />
-                <span>কেমেৰাৰে পৃষ্ঠা স্কেন কৰক (Scan Document)</span>
+                <span>কেমেৰাৰে পৃষ্ঠা স্কেন কৰক</span>
+              </button>
+            )}
+
+            {onLoad200PagesSample && (
+              <button
+                type="button"
+                onClick={onLoad200PagesSample}
+                disabled={isLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-600 hover:to-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
+                title="Generate 200-page document to test batch signing and 800 KB compression"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-200" />
+                <span>Load 200-Page File (২০০খন পৃষ্ঠাৰ ফাইল)</span>
               </button>
             )}
 

@@ -42,3 +42,37 @@ export interface ProcessedSignature {
   height: number; // pixels
   aspectRatio: number;
 }
+
+export type CompressionPreset = 'extreme_800kb' | 'balanced_1mb' | 'crisp_hd' | 'custom';
+
+export interface PdfCompressionOptions {
+  enabled: boolean;
+  preset: CompressionPreset;
+  targetSizeKb: number; // e.g. 800 KB
+  quality: number; // 0.1 to 1.0 (default 0.72)
+  maxDimension: number; // max width/height in px (e.g. 1400)
+  useGrayscale: boolean;
+  removeMetadata: boolean;
+}
+
+export interface CompressionResult {
+  originalBytes: number;
+  compressedBytes: number;
+  reductionPercentage: number;
+  bytes: Uint8Array;
+  blob: Blob;
+  url: string;
+  pageCount: number;
+}
+
+export interface BatchSigningConfig {
+  scope: 'all' | 'range' | 'odd' | 'even' | 'last_only';
+  rangeStart?: number;
+  rangeEnd?: number;
+  positionPreset: 'bottom-right' | 'bottom-left' | 'bottom-center' | 'top-right' | 'same_as_current';
+  customCoords?: { x: number; y: number; width: number; height: number };
+  width?: number;
+  height?: number;
+}
+
+export type MobileViewTab = 'document' | 'signature' | 'batch' | 'compress';
