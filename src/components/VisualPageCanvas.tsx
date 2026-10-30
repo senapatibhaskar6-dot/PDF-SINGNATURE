@@ -13,6 +13,10 @@ import {
   ZoomIn,
   ZoomOut,
   Hash,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  CornerDownLeft,
 } from 'lucide-react';
 
 interface VisualPageCanvasProps {
@@ -33,6 +37,10 @@ interface VisualPageCanvasProps {
   onRotateAllPages?: (delta: number) => void;
   onOpenPageNumberModal?: () => void;
   onUpdatePageNumbering?: (updates: Partial<PageNumberingOptions>) => void;
+  onJumpToPage?: (pageNumber: number) => void;
+  onNextPage?: () => void;
+  onPrevPage?: () => void;
+  onSaveAndNextPage?: () => void;
 }
 
 export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
@@ -53,6 +61,10 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
   onRotateAllPages,
   onOpenPageNumberModal,
   onUpdatePageNumbering,
+  onJumpToPage,
+  onNextPage,
+  onPrevPage,
+  onSaveAndNextPage,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -133,9 +145,38 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
     };
   }, [pdfRawBytes, pageInfo.pageNumber, pageInfo.width, pageInfo.height, pageInfo.rotation, scale]);
 
-  // Keyboard shortcut listener: Ctrl+C, Ctrl+V, Delete
+  const [pageJumpInput, setPageJumpInput] = useState<string>(String(pageInfo.pageNumber));
+
+  useEffect(() => {
+    setPageJumpInput(String(pageInfo.pageNumber));
+  }, [pageInfo.pageNumber]);
+
+  // Keyboard shortcut listener: Ctrl+C, Ctrl+V, Delete, Enter (Save & Next)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Enter key shortcut: Save signature and jump to next page
+      if (e.key === 'Enter') {
+        const activeElem = document.activeElement;
+        const isInput =
+          activeElem?.tagName === 'INPUT' || activeElem?.tagName === 'TEXTAREA';
+
+        if (activeElem?.getAttribute('data-page-jump') === 'true') {
+          e.preventDefault();
+          const target = parseInt(pageJumpInput, 10);
+          if (!isNaN(target) && onJumpToPage) {
+            onJumpToPage(target);
+            (activeElem as HTMLElement)?.blur();
+          }
+          return;
+        }
+
+        if (!isInput && onSaveAndNextPage) {
+          e.preventDefault();
+          onSaveAndNextPage();
+          return;
+        }
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
         if (activePlacementId) {
           e.preventDefault();
@@ -161,7 +202,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activePlacementId, onDuplicatePlacement, onRemovePlacement, placements.length]);
+  }, [activePlacementId, onDuplicatePlacement, onRemovePlacement, placements.length, pageJumpInput, onJumpToPage, onSaveAndNextPage]);
 
   // Filter placements belonging to this page
   const pagePlacements = placements.filter((p) => p.pageNumber === pageInfo.pageNumber);
@@ -312,6 +353,91 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
 
   return (
     <div ref={containerRef} className="w-full flex flex-col items-center select-none">
+      {/* 1. Primary Page Jump & Save-and-Next (Enter) Bar */}
+      <div className="w-full max-w-2xl bg-white border border-slate-300 rounded-xl p-2 sm:p-2.5 mb-2.5 flex items-center justify-between flex-wrap gap-2.5 shadow-sm">
+        {/* Left: Interactive Manual Page Jump Input */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200/60 border border-slate-300 rounded-lg px-2.5 py-1 transition-colors">
+            <span className="text-xs font-bold text-slate-800 whitespace-nowrap flex items-center gap-1">
+              <span>📄 পৃষ্ঠা (Page):</span>
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={totalPages || 1}
+              data-page-jump="true"
+              value={pageJumpInput}
+              onChange={(e) => setPageJumpInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const target = parseInt(pageJumpInput, 10);
+                  if (!isNaN(target) && onJumpToPage) {
+                    onJumpToPage(target);
+                  }
+                }
+              }}
+              className="w-14 text-center text-xs font-mono font-bold bg-white border border-slate-300 rounded-md py-0.5 text-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 shadow-2xs"
+              title="পৃষ্ঠা নম্বৰ লিখক আৰু Enter টিপক"
+            />
+            <span className="text-xs font-mono text-slate-500 font-semibold">
+              / {totalPages || 1}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const target = parseInt(pageJumpInput, 10);
+                if (!isNaN(target) && onJumpToPage) {
+                  onJumpToPage(target);
+                }
+              }}
+              className="px-2.5 py-1 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors shadow-2xs"
+              title="এই পৃষ্ঠা দেখুৱাওক (Go to page)"
+            >
+              Go ➔
+            </button>
+          </div>
+
+          {/* Quick Prev / Next page arrows */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onPrevPage}
+              disabled={pageInfo.pageNumber <= 1}
+              className="p-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 disabled:opacity-30 text-slate-700 shadow-2xs transition-colors"
+              title="Previous Page (পূৰ্বৰ পৃষ্ঠা)"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onNextPage}
+              disabled={pageInfo.pageNumber >= (totalPages || 1)}
+              className="p-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 disabled:opacity-30 text-slate-700 shadow-2xs transition-colors"
+              title="Next Page (পৰৱৰ্তী পৃষ্ঠা)"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Right: Save & Next Page Button with Enter shortcut indicator */}
+        {onSaveAndNextPage && (
+          <button
+            type="button"
+            onClick={onSaveAndNextPage}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-bold text-xs rounded-lg shadow-sm hover:shadow transition-all"
+            title="চহী সংৰক্ষণ কৰি পৰৱৰ্তী পৃষ্ঠাত চহী বহুৱাওক (বা কিবৰ্ডত Enter টিপক)"
+          >
+            <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+            <span>Save & Next Page</span>
+            <span className="bg-emerald-950/70 text-emerald-100 px-1.5 py-0.2 rounded font-mono text-[10px] border border-emerald-400/40 font-bold">
+              Enter ↵
+            </span>
+          </button>
+        )}
+      </div>
+
       {/* On-Canvas Guide Header & Rotation Tools */}
       <div className="w-full max-w-2xl bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-3 py-2 mb-3 flex items-center justify-between flex-wrap gap-2 text-xs">
         <div className="flex items-center gap-1.5 font-medium">
@@ -497,6 +623,20 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
                       <Sparkles className="w-3 h-3 text-amber-400" />
                       <span>All Pages</span>
                     </button>
+                  )}
+                  {onSaveAndNextPage && (
+                    <>
+                      <span className="text-slate-600">|</span>
+                      <button
+                        type="button"
+                        onClick={onSaveAndNextPage}
+                        className="text-emerald-300 hover:text-emerald-200 flex items-center gap-1 font-bold transition-colors"
+                        title="চহী সংৰক্ষণ কৰি পিছৰ পৃষ্ঠালৈ যাওক (বা Enter টিপক)"
+                      >
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                        <span>Next (Enter ↵)</span>
+                      </button>
+                    </>
                   )}
                   {onRemovePlacement && placements.length > 1 && (
                     <>

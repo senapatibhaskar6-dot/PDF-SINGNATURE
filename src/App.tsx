@@ -91,8 +91,18 @@ export default function App() {
     isCompressed?: boolean;
   } | null>(null);
 
-  // Status/Error banner
+  // Status/Error banner & quick toast notifications
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [quickToast, setQuickToast] = useState<string | null>(null);
+
+  // Auto-dismiss quick toast after 3 seconds
+  useEffect(() => {
+    if (!quickToast) return;
+    const timer = setTimeout(() => {
+      setQuickToast(null);
+    }, 3200);
+    return () => clearTimeout(timer);
+  }, [quickToast]);
 
   // Auto-load sample PDF and sample signature on initial visit
   useEffect(() => {
@@ -378,6 +388,115 @@ export default function App() {
     setCurrentPageIndex(lastPageNum - 1);
   };
 
+  // Manual Jump to specific page
+  const handleJumpToPage = (pageNum: number) => {
+    if (!pdfInfo) return;
+    const target = Math.max(1, Math.min(pdfInfo.pageCount, pageNum));
+    setCurrentPageIndex(target - 1);
+    const existing = placements.find((p) => p.pageNumber === target);
+    if (existing) {
+      setActivePlacementId(existing.id);
+    }
+    setQuickToast(`পৃষ্ঠা ${target} লৈ যোৱা হ'ল (Page ${target})`);
+  };
+
+  // Automatic Save & Move to Next Page workflow requested by user:
+  // When user places a signature, pressing Enter saves it in place, moves to next page, and prepares next signature!
+  const handleSaveAndNextPage = () => {
+    if (!pdfInfo) return;
+    const currentPg = currentPageIndex + 1;
+    const total = pdfInfo.pageCount;
+
+    // Current page placement
+    const currentPlacement =
+      placements.find((p) => p.id === activePlacementId && p.pageNumber === currentPg) ||
+      placements.find((p) => p.pageNumber === currentPg);
+
+    if (currentPageIndex < total - 1) {
+      const nextPg = currentPg + 1;
+      const nextPageInfo = pdfInfo.pages[nextPg - 1] || pdfInfo.pages[0];
+
+      // Check if next page already has a placement
+      const existingNextPlacement = placements.find((p) => p.pageNumber === nextPg);
+
+      if (existingNextPlacement) {
+        setCurrentPageIndex(nextPg - 1);
+        setActivePlacementId(existingNextPlacement.id);
+        setQuickToast(`✅ পৃষ্ঠা ${currentPg} সংৰক্ষিত! পৃষ্ঠা ${nextPg} লৈ যোৱা হ'ল (Enter ↵)`);
+      } else if (currentPlacement) {
+        // Automatically replicate placement onto next page at exact coordinates
+        const newPlacement: SignaturePlacement = {
+          ...currentPlacement,
+          id: `placement-p${nextPg}-${Date.now()}`,
+          pageNumber: nextPg,
+        };
+        setPlacements((prev) => [...prev, newPlacement]);
+        setCurrentPageIndex(nextPg - 1);
+        setActivePlacementId(newPlacement.id);
+        setQuickToast(`✅ পৃষ্ঠা ${currentPg} সংৰক্ষিত! পৃষ্ঠা ${nextPg} ত চহী বহিল (Enter ↵)`);
+      } else {
+        // Place default signature on next page
+        const sigW = signature ? Math.min(170, Math.round(nextPageInfo.width * 0.3)) : 160;
+        const sigH = signature ? Math.round(sigW / signature.aspectRatio) : 55;
+        const newPlacement: SignaturePlacement = {
+          id: `placement-p${nextPg}-${Date.now()}`,
+          pageNumber: nextPg,
+          x: Math.max(54, nextPageInfo.width - sigW - 54),
+          y: 70,
+          width: sigW,
+          height: sigH,
+          origin: 'bottom-left',
+        };
+        setPlacements((prev) => [...prev, newPlacement]);
+        setCurrentPageIndex(nextPg - 1);
+        setActivePlacementId(newPlacement.id);
+        setQuickToast(`পৃষ্ঠা ${nextPg} ত চহী বহিল (Enter ↵)`);
+      }
+    } else {
+      setQuickToast(`🎉 সকলো ${total} খন পৃষ্ঠাত চহী প্ৰক্ৰিয়া সম্পূৰ্ণ হ'ল! এতিয়া Download কৰক`);
+    }
+  };
+
+  // Global Enter shortcut for rapid next page signing
+  useEffect(() => {
+    const handleGlobalEnter = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        const activeElem = document.activeElement;
+        const isInput =
+          activeElem?.tagName === 'INPUT' ||
+          activeElem?.tagName === 'TEXTAREA' ||
+          activeElem?.getAttribute('contenteditable') === 'true';
+
+        if (
+          !isInput &&
+          pdfInfo &&
+          canvasViewMode === 'focus' &&
+          !isBatchModalOpen &&
+          !isCompressorModalOpen &&
+          !isScannerOpen &&
+          !isPageNumberModalOpen
+        ) {
+          e.preventDefault();
+          handleSaveAndNextPage();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalEnter);
+    return () => window.removeEventListener('keydown', handleGlobalEnter);
+  }, [
+    pdfInfo,
+    canvasViewMode,
+    isBatchModalOpen,
+    isCompressorModalOpen,
+    isScannerOpen,
+    isPageNumberModalOpen,
+    currentPageIndex,
+    placements,
+    activePlacementId,
+    signature,
+  ]);
+
   // Generate & Sign PDF (with high-regulation compression to ~800 KB support!)
   const handleGenerateSignedPdf = async () => {
     if (!pdfInfo) {
@@ -646,7 +765,22 @@ export default function App() {
       </div>
 
       {/* Main Container */}
-      <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 flex-1 flex flex-col gap-4 sm:gap-6 pb-20 lg:pb-6">
+      <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 flex-1 flex flex-col gap-4 sm:gap-6 pb-20 lg:pb-6 relative">
+        {/* Quick Toast Notification */}
+        {quickToast && (
+          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 text-xs font-semibold flex items-center gap-2.5 animate-in fade-in slide-in-from-top-3 duration-200 backdrop-blur-md">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>{quickToast}</span>
+            <button
+              onClick={() => setQuickToast(null)}
+              className="text-slate-400 hover:text-white ml-2 text-sm leading-none"
+              title="Close"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Error notification banner */}
         {errorMessage && (
           <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800 flex items-center justify-between">
@@ -917,6 +1051,10 @@ export default function App() {
                       onUpdatePageNumbering={(updates) =>
                         setPageNumbering((prev) => ({ ...prev, ...updates }))
                       }
+                      onJumpToPage={(target) => handleJumpToPage(target)}
+                      onNextPage={() => handleJumpToPage(currentPageIndex + 2)}
+                      onPrevPage={() => handleJumpToPage(currentPageIndex)}
+                      onSaveAndNextPage={handleSaveAndNextPage}
                     />
                   </div>
                 ) : (
