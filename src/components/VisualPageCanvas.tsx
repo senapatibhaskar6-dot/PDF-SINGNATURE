@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { PageInfo, SignaturePlacement, ProcessedSignature } from '../types';
+import { PageInfo, SignaturePlacement, ProcessedSignature, PageNumberingOptions } from '../types';
 import { renderPdfPageToCanvas } from '../utils/pdfRenderer';
+import { formatPageNumberText, calculatePageNumberBounds } from '../utils/pageNumberHelper';
 import {
   Move,
   Copy,
@@ -11,6 +12,7 @@ import {
   Maximize2,
   ZoomIn,
   ZoomOut,
+  Hash,
 } from 'lucide-react';
 
 interface VisualPageCanvasProps {
@@ -19,6 +21,8 @@ interface VisualPageCanvasProps {
   placements: SignaturePlacement[];
   activePlacementId: string | null;
   signature: ProcessedSignature | null;
+  pageNumbering?: PageNumberingOptions;
+  totalPages?: number;
   onSelectPlacement: (id: string) => void;
   onUpdatePlacement: (id: string, updates: Partial<SignaturePlacement>) => void;
   onAddPlacementAtCoords: (x: number, y: number) => void;
@@ -27,6 +31,8 @@ interface VisualPageCanvasProps {
   onApplyToAllPages?: (id: string) => void;
   onRotatePage?: (delta: number) => void;
   onRotateAllPages?: (delta: number) => void;
+  onOpenPageNumberModal?: () => void;
+  onUpdatePageNumbering?: (updates: Partial<PageNumberingOptions>) => void;
 }
 
 export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
@@ -35,6 +41,8 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
   placements,
   activePlacementId,
   signature,
+  pageNumbering,
+  totalPages,
   onSelectPlacement,
   onUpdatePlacement,
   onAddPlacementAtCoords,
@@ -43,6 +51,8 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
   onApplyToAllPages,
   onRotatePage,
   onRotateAllPages,
+  onOpenPageNumberModal,
+  onUpdatePageNumbering,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -51,6 +61,14 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
   const [zoomMultiplier, setZoomMultiplier] = useState<number>(1);
   const [isPdfRendering, setIsPdfRendering] = useState<boolean>(false);
   const [renderError, setRenderError] = useState<string | null>(null);
+
+  const [pageNumberDrag, setPageNumberDrag] = useState<{
+    isDragging: boolean;
+    startX: number;
+    startY: number;
+    initialX: number;
+    initialY: number;
+  } | null>(null);
 
   const [dragState, setDragState] = useState<{
     placementId: string;
@@ -189,41 +207,62 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
 
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
-      if (!dragState) return;
+      // 1. Signature Placement Dragging or Resizing
+      if (dragState) {
+        const deltaScreenX = e.clientX - dragState.startX;
+        const deltaScreenY = e.clientY - dragState.startY;
+        const deltaPtX = Math.round(deltaScreenX / scale);
+        const deltaPtY = Math.round(deltaScreenY / scale);
 
-      const deltaScreenX = e.clientX - dragState.startX;
-      const deltaScreenY = e.clientY - dragState.startY;
-      const deltaPtX = Math.round(deltaScreenX / scale);
-      const deltaPtY = Math.round(deltaScreenY / scale);
+        const placement = placements.find((p) => p.id === dragState.placementId);
+        if (placement) {
+          if (dragState.isDragging) {
+            let newX = Math.max(0, Math.min(pageInfo.width - placement.width, dragState.initialX + deltaPtX));
+            let newY = dragState.initialY;
 
-      const placement = placements.find((p) => p.id === dragState.placementId);
-      if (!placement) return;
+            if (placement.origin === 'bottom-left') {
+              newY = Math.max(0, Math.min(pageInfo.height - placement.height, dragState.initialY - deltaPtY));
+            } else {
+              newY = Math.max(0, Math.min(pageInfo.height - placement.height, dragState.initialY + deltaPtY));
+            }
 
-      if (dragState.isDragging) {
-        let newX = Math.max(0, Math.min(pageInfo.width - placement.width, dragState.initialX + deltaPtX));
-        let newY = dragState.initialY;
+            onUpdatePlacement(placement.id, { x: newX, y: newY });
+          } else if (dragState.isResizing) {
+            const aspect = signature?.aspectRatio || (dragState.initialW / Math.max(1, dragState.initialH));
+            const newW = Math.max(40, Math.min(pageInfo.width - placement.x, dragState.initialW + deltaPtX));
+            const newH = Math.round(newW / aspect);
 
-        if (placement.origin === 'bottom-left') {
-          newY = Math.max(0, Math.min(pageInfo.height - placement.height, dragState.initialY - deltaPtY));
-        } else {
-          newY = Math.max(0, Math.min(pageInfo.height - placement.height, dragState.initialY + deltaPtY));
+            onUpdatePlacement(placement.id, { width: newW, height: newH });
+          }
         }
+      }
 
-        onUpdatePlacement(placement.id, { x: newX, y: newY });
-      } else if (dragState.isResizing) {
-        const aspect = signature?.aspectRatio || (dragState.initialW / Math.max(1, dragState.initialH));
-        const newW = Math.max(40, Math.min(pageInfo.width - placement.x, dragState.initialW + deltaPtX));
-        const newH = Math.round(newW / aspect);
+      // 2. Page Number Badge Dragging (Manual Positioning anywhere on page)
+      if (pageNumberDrag?.isDragging && pageNumbering && onUpdatePageNumbering) {
+        const deltaPtX = Math.round((e.clientX - pageNumberDrag.startX) / scale);
+        const deltaPtY = Math.round((e.clientY - pageNumberDrag.startY) / scale);
 
-        onUpdatePlacement(placement.id, { width: newW, height: newH });
+        const newX = Math.max(4, Math.min(pageInfo.width - 60, pageNumberDrag.initialX + deltaPtX));
+        const newY = Math.max(4, Math.min(pageInfo.height - 25, pageNumberDrag.initialY + deltaPtY));
+        const newXPercent = Math.round((newX / pageInfo.width) * 1000) / 10;
+        const newYPercent = Math.round((newY / pageInfo.height) * 1000) / 10;
+
+        onUpdatePageNumbering({
+          positionMode: 'manual_drag',
+          manualX: newX,
+          manualY: newY,
+          manualXPercent: newXPercent,
+          manualYPercent: newYPercent,
+        });
       }
     };
 
     const handlePointerUp = () => {
-      setDragState(null);
+      if (dragState) setDragState(null);
+      if (pageNumberDrag) setPageNumberDrag(null);
     };
 
-    if (dragState) {
+    if (dragState || pageNumberDrag) {
       window.addEventListener('pointermove', handlePointerMove);
       window.addEventListener('pointerup', handlePointerUp);
     }
@@ -232,7 +271,7 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [dragState, scale, pageInfo, placements, signature, onUpdatePlacement]);
+  }, [dragState, pageNumberDrag, scale, pageInfo, placements, signature, onUpdatePlacement, pageNumbering, onUpdatePageNumbering]);
 
   // Click directly on real document to drop or move signature
   const handlePageClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -349,6 +388,22 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
           </div>
+
+          {onOpenPageNumberModal && (
+            <button
+              type="button"
+              onClick={onOpenPageNumberModal}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all shadow-2xs ${
+                pageNumbering?.enabled
+                  ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                  : 'bg-white text-slate-800 hover:text-indigo-700 hover:bg-indigo-50 border border-slate-300'
+              }`}
+              title="পেজ নম্বৰ ছেটিংছ (Page Number Settings)"
+            >
+              <Hash className="w-3.5 h-3.5" />
+              <span>পেজ নম্বৰ {pageNumbering?.enabled ? '(Active)' : ''}</span>
+            </button>
+          )}
 
           {activePlacementId && onDuplicatePlacement && (
             <button
@@ -484,6 +539,83 @@ export const VisualPageCanvas: React.FC<VisualPageCanvasProps> = ({
             </div>
           );
         })}
+
+        {/* Live Page Number Badge Preview with Free Drag & Drop */}
+        {pageNumbering?.enabled &&
+          (() => {
+            const pageNumStr = formatPageNumberText(
+              pageInfo.pageNumber - 1,
+              totalPages || 1,
+              pageNumbering
+            );
+            if (!pageNumStr) return null;
+
+            const bounds = calculatePageNumberBounds(
+              pageInfo.width,
+              pageInfo.height,
+              60,
+              16,
+              pageNumbering
+            );
+
+            const leftPx = Math.round(bounds.x * scale);
+            const topPx = Math.round(bounds.yTop * scale);
+
+            return (
+              <div
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  setPageNumberDrag({
+                    isDragging: true,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    initialX: bounds.x,
+                    initialY: bounds.yTop,
+                  });
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (onOpenPageNumberModal) onOpenPageNumberModal();
+                }}
+                className={`absolute select-none z-30 cursor-grab active:cursor-grabbing transition-shadow hover:scale-105 group ${
+                  pageNumberDrag?.isDragging ? 'opacity-90 ring-2 ring-purple-500 scale-105 shadow-lg' : ''
+                }`}
+                style={{
+                  left: `${leftPx}px`,
+                  top: `${topPx}px`,
+                  touchAction: 'none',
+                }}
+                title="ড্ৰেগ কৰি যিকোনো স্থানত বহুৱাওক (Drag anywhere. Double click for settings)"
+              >
+                <span
+                  style={{
+                    color: pageNumbering.fontColor,
+                    fontSize: `${Math.max(9, Math.round(pageNumbering.fontSize * scale * 1.05))}px`,
+                  }}
+                  className={`font-semibold tracking-wide flex items-center gap-1.5 ${
+                    pageNumbering.includeBackgroundPill
+                      ? 'bg-white/95 px-2.5 py-0.5 rounded-full shadow-md border border-slate-300 backdrop-blur-xs'
+                      : ''
+                  } ${
+                    pageNumbering.positionMode === 'manual_drag'
+                      ? 'ring-1 ring-purple-500'
+                      : ''
+                  }`}
+                >
+                  <Move className="w-2.5 h-2.5 opacity-60 text-purple-600 group-hover:opacity-100" />
+                  <span>{pageNumStr}</span>
+                </span>
+
+                {/* Floating tooltip */}
+                <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-slate-900 text-white text-[10px] px-2 py-0.5 rounded shadow-md whitespace-nowrap pointer-events-none">
+                  <span>ড্ৰেগ কৰক (Drag)</span>
+                </div>
+              </div>
+            );
+          })()}
       </div>
 
       {/* Footer Info */}

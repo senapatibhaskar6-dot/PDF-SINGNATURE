@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { PageInfo, SignaturePlacement, ProcessedSignature } from '../types';
+import { PageInfo, SignaturePlacement, ProcessedSignature, PageNumberingOptions } from '../types';
 import { renderPdfPageToCanvas } from '../utils/pdfRenderer';
-import { Plus, Check, Move, Trash2, Hand, RotateCw } from 'lucide-react';
+import { formatPageNumberText, calculatePageNumberBounds } from '../utils/pageNumberHelper';
+import { Plus, Check, Move, Trash2, Hand, RotateCw, Hash } from 'lucide-react';
 
 interface AllPagesFlowViewProps {
   pages: PageInfo[];
@@ -9,6 +10,7 @@ interface AllPagesFlowViewProps {
   placements: SignaturePlacement[];
   activePlacementId: string | null;
   signature: ProcessedSignature | null;
+  pageNumbering?: PageNumberingOptions;
   onSelectPlacement: (id: string) => void;
   onUpdatePlacement: (id: string, updates: Partial<SignaturePlacement>) => void;
   onAddPlacementToPage: (pageNumber: number, x?: number, y?: number) => void;
@@ -16,6 +18,7 @@ interface AllPagesFlowViewProps {
   onFocusPage: (pageIndex: number) => void;
   onRotatePage?: (pageNumber: number, delta: number) => void;
   onRotateAllPages?: (delta: number) => void;
+  onOpenPageNumberModal?: () => void;
 }
 
 // Single Page Item with Real PDF Canvas
@@ -26,12 +29,14 @@ const RealPdfPageCard: React.FC<{
   placements: SignaturePlacement[];
   activePlacementId: string | null;
   signature: ProcessedSignature | null;
+  pageNumbering?: PageNumberingOptions;
   onSelectPlacement: (id: string) => void;
   onUpdatePlacement: (id: string, updates: Partial<SignaturePlacement>) => void;
   onAddPlacementToPage: (pageNumber: number, x?: number, y?: number) => void;
   onRemovePlacement: (id: string) => void;
   onFocusPage: (pageIndex: number) => void;
   onRotatePage?: (pageNumber: number, delta: number) => void;
+  onOpenPageNumberModal?: () => void;
 }> = ({
   page,
   totalPages,
@@ -39,12 +44,14 @@ const RealPdfPageCard: React.FC<{
   placements,
   activePlacementId,
   signature,
+  pageNumbering,
   onSelectPlacement,
   onUpdatePlacement,
   onAddPlacementToPage,
   onRemovePlacement,
   onFocusPage,
   onRotatePage,
+  onOpenPageNumberModal,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cardWidth = 360;
@@ -247,6 +254,50 @@ const RealPdfPageCard: React.FC<{
               </div>
             </div>
           )}
+
+          {/* Live Page Number Badge on Card */}
+          {pageNumbering?.enabled &&
+            (() => {
+              const text = formatPageNumberText(page.pageNumber - 1, totalPages, pageNumbering);
+              if (!text) return null;
+
+              const bounds = calculatePageNumberBounds(
+                page.width,
+                page.height,
+                50,
+                14,
+                pageNumbering
+              );
+              const leftPx = Math.round(bounds.x * scale);
+              const topPx = Math.round(bounds.yTop * scale);
+
+              return (
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onOpenPageNumberModal) onOpenPageNumberModal();
+                  }}
+                  className="absolute z-20 cursor-pointer pointer-events-auto select-none"
+                  style={{
+                    left: `${leftPx}px`,
+                    top: `${topPx}px`,
+                  }}
+                  title="Click to edit page number settings"
+                >
+                  <span
+                    style={{ color: pageNumbering.fontColor }}
+                    className={`text-[10px] font-semibold tracking-wide flex items-center gap-1 ${
+                      pageNumbering.includeBackgroundPill
+                        ? 'bg-white/95 px-2 py-0.5 rounded-full shadow-xs border border-slate-300'
+                        : ''
+                    }`}
+                  >
+                    <Hash className="w-2.5 h-2.5 opacity-50" />
+                    <span>{text}</span>
+                  </span>
+                </div>
+              );
+            })()}
         </div>
       </div>
     </div>
@@ -302,12 +353,14 @@ export const AllPagesFlowView: React.FC<AllPagesFlowViewProps> = (props) => {
           placements={props.placements}
           activePlacementId={props.activePlacementId}
           signature={props.signature}
+          pageNumbering={props.pageNumbering}
           onSelectPlacement={props.onSelectPlacement}
           onUpdatePlacement={props.onUpdatePlacement}
           onAddPlacementToPage={props.onAddPlacementToPage}
           onRemovePlacement={props.onRemovePlacement}
           onFocusPage={props.onFocusPage}
           onRotatePage={props.onRotatePage}
+          onOpenPageNumberModal={props.onOpenPageNumberModal}
         />
       ))}
     </div>

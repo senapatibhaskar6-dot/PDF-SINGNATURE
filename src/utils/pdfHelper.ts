@@ -5,8 +5,14 @@ import {
   PageInfo,
   PdfCompressionOptions,
   BatchSigningConfig,
+  PageNumberingOptions,
 } from '../types';
 import { compressPdfDocument, CompressionProgressInfo } from './pdfCompressor';
+import {
+  formatPageNumberText,
+  calculatePageNumberBounds,
+  renderPageNumberBadgeToPng,
+} from './pageNumberHelper';
 
 /**
  * Loads a PDF file and extracts page counts, rotation angles, and dimensions in points.
@@ -167,7 +173,8 @@ export async function applySignaturesAndExport(
   signaturePngBytes: Uint8Array,
   placements: SignaturePlacement[],
   compressionOptions?: PdfCompressionOptions,
-  onProgress?: (progress: CompressionProgressInfo) => void
+  onProgress?: (progress: CompressionProgressInfo) => void,
+  pageNumbering?: PageNumberingOptions
 ): Promise<{
   bytes: Uint8Array;
   blob: Blob;
@@ -256,10 +263,103 @@ export async function applySignaturesAndExport(
       onProgress?.({
         current: processedCount,
         total: placements.length,
-        percentage: Math.round((processedCount / placements.length) * (compressionOptions?.enabled ? 40 : 90)),
+        percentage: Math.round((processedCount / placements.length) * (compressionOptions?.enabled ? 30 : 70)),
         statusText: `Applied signature to ${processedCount} of ${placements.length} pages (${processedCount}/${placements.length} পৃষ্ঠা সম্পূৰ্ণ)...`,
       });
       if (processedCount % 25 === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+  }
+
+  // Embed page numbers across pages if enabled
+  if (pageNumbering?.enabled) {
+    onProgress?.({
+      current: 0,
+      total: totalPages,
+      percentage: compressionOptions?.enabled ? 35 : 75,
+      statusText: `Embedding page numbers across pages (পেজ নম্বৰ বহুওৱা হৈছে)...`,
+    });
+
+    for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+      const pageNumStr = formatPageNumberText(pageIdx, totalPages, pageNumbering);
+      if (!pageNumStr) continue;
+
+      const page = pdfDoc.getPage(pageIdx);
+      const { width: W0, height: H0 } = page.getSize();
+      const rot = ((page.getRotation().angle % 360) + 360) % 360;
+      const visualWidth = rot === 90 || rot === 270 ? H0 : W0;
+      const visualHeight = rot === 90 || rot === 270 ? W0 : H0;
+
+      // Render crisp badge
+      const badge = await renderPageNumberBadgeToPng(
+        pageNumStr,
+        pageNumbering.fontSize,
+        pageNumbering.fontColor,
+        pageNumbering.includeBackgroundPill
+      );
+
+      const bounds = calculatePageNumberBounds(
+        visualWidth,
+        visualHeight,
+        badge.widthPt,
+        badge.heightPt,
+        pageNumbering
+      );
+
+      const badgeImage = await pdfDoc.embedPng(badge.pngBytes);
+      const bw = badge.widthPt;
+      const bh = badge.heightPt;
+      const xScreen = bounds.x;
+      const yScreen = bounds.yTop;
+
+      let drawParams: any;
+      if (rot === 0) {
+        drawParams = {
+          x: xScreen,
+          y: H0 - yScreen - bh,
+          width: bw,
+          height: bh,
+          rotate: degrees(0),
+        };
+      } else if (rot === 90) {
+        drawParams = {
+          x: yScreen + bh,
+          y: xScreen,
+          width: bw,
+          height: bh,
+          rotate: degrees(90),
+        };
+      } else if (rot === 180) {
+        drawParams = {
+          x: W0 - xScreen,
+          y: yScreen + bh,
+          width: bw,
+          height: bh,
+          rotate: degrees(180),
+        };
+      } else {
+        // rot === 270
+        drawParams = {
+          x: W0 - yScreen - bh,
+          y: H0 - xScreen,
+          width: bw,
+          height: bh,
+          rotate: degrees(270),
+        };
+      }
+
+      page.drawImage(badgeImage, drawParams);
+
+      if ((pageIdx + 1) % 15 === 0 || pageIdx === totalPages - 1) {
+        onProgress?.({
+          current: pageIdx + 1,
+          total: totalPages,
+          percentage:
+            (compressionOptions?.enabled ? 35 : 75) +
+            Math.round(((pageIdx + 1) / totalPages) * (compressionOptions?.enabled ? 10 : 20)),
+          statusText: `Numbered ${pageIdx + 1} of ${totalPages} pages (${pageIdx + 1}/${totalPages} পৃষ্ঠাত নম্বৰ বহুওৱা হ'ল)...`,
+        });
         await new Promise((r) => setTimeout(r, 0));
       }
     }

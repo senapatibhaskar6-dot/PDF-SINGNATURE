@@ -10,6 +10,7 @@ import {
   ProcessedSignature,
   MobileViewTab,
   PdfCompressionOptions,
+  PageNumberingOptions,
 } from './types';
 import {
   loadPdfDocument,
@@ -20,6 +21,7 @@ import {
 } from './utils/pdfHelper';
 import { generateSampleSignatureDataUrl, processSignatureImage } from './utils/imageProcessor';
 import { formatBytes, CompressionProgressInfo } from './utils/pdfCompressor';
+import { DEFAULT_PAGE_NUMBERING } from './utils/pageNumberHelper';
 import { PdfUploader } from './components/PdfUploader';
 import { SignatureEditor } from './components/SignatureEditor';
 import { PlacementList } from './components/PlacementList';
@@ -29,6 +31,7 @@ import { SignedPdfViewer } from './components/SignedPdfViewer';
 import { DocumentScannerModal } from './components/DocumentScannerModal';
 import { BatchSigningModal } from './components/BatchSigningModal';
 import { PdfCompressorModal } from './components/PdfCompressorModal';
+import { PageNumberingModal } from './components/PageNumberingModal';
 import {
   ChevronLeft,
   ChevronRight,
@@ -47,6 +50,7 @@ import {
   RefreshCw,
   FileText,
   PenTool,
+  Hash,
 } from 'lucide-react';
 
 export default function App() {
@@ -61,6 +65,10 @@ export default function App() {
   const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
   const [isBatchModalOpen, setIsBatchModalOpen] = useState<boolean>(false);
   const [isCompressorModalOpen, setIsCompressorModalOpen] = useState<boolean>(false);
+  const [isPageNumberModalOpen, setIsPageNumberModalOpen] = useState<boolean>(false);
+
+  // PDF Page Numbering System State
+  const [pageNumbering, setPageNumbering] = useState<PageNumberingOptions>(DEFAULT_PAGE_NUMBERING);
 
   // Compression on Export settings (Default enabled for ~800 KB as requested)
   const [compressOnExport, setCompressOnExport] = useState<boolean>(true);
@@ -410,7 +418,8 @@ export default function App() {
         signature.pngBytes,
         placements,
         compressOnExport ? compressionOpts : undefined,
-        (prog) => setExportProgress(prog)
+        (prog) => setExportProgress(prog),
+        pageNumbering
       );
 
       setSignedResult({
@@ -498,6 +507,27 @@ export default function App() {
                 <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
                 <span className="hidden md:inline">৮০০ KB কম্প্ৰেছ (Compress)</span>
                 <span className="md:hidden">৮০০KB</span>
+              </button>
+            )}
+
+            {/* Page Numbering System Button */}
+            {pdfInfo && (
+              <button
+                type="button"
+                onClick={() => setIsPageNumberModalOpen(true)}
+                className={`inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold rounded-lg shadow-2xs transition-all whitespace-nowrap ${
+                  pageNumbering.enabled
+                    ? 'text-white bg-purple-700 hover:bg-purple-800 ring-2 ring-purple-400/30'
+                    : 'text-purple-900 hover:text-purple-950 bg-purple-50 hover:bg-purple-100 border border-purple-300'
+                }`}
+                title="পৃষ্ঠাত পেজ নম্বৰ বহুৱাওক (Add Page Numbers)"
+              >
+                <Hash className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">পেজ নম্বৰ (Page No)</span>
+                <span className="md:hidden">নম্বৰ</span>
+                {pageNumbering.enabled && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                )}
               </button>
             )}
 
@@ -599,6 +629,19 @@ export default function App() {
         >
           <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
           <span>🗜️ ৮০০KB</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setIsPageNumberModalOpen(true)}
+          className={`flex-1 py-1.5 px-2 text-center rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+            pageNumbering.enabled
+              ? 'bg-purple-700 text-white shadow-xs'
+              : 'text-purple-800 bg-purple-50/70 hover:bg-purple-100'
+          }`}
+        >
+          <Hash className="w-3.5 h-3.5" />
+          <span>নম্বৰ {pageNumbering.enabled ? '✓' : ''}</span>
         </button>
       </div>
 
@@ -732,7 +775,9 @@ export default function App() {
                     onDuplicatePlacement={handleDuplicatePlacement}
                     onApplyToAllPages={handleApplyToAllPages}
                     onApplyToLastPage={handleApplyToLastPage}
+                    pageNumbering={pageNumbering}
                     onOpenBatchModal={() => setIsBatchModalOpen(true)}
+                    onOpenPageNumberModal={() => setIsPageNumberModalOpen(true)}
                   />
                 </div>
               )}
@@ -858,6 +903,8 @@ export default function App() {
                       placements={placements}
                       activePlacementId={activePlacementId}
                       signature={signature}
+                      pageNumbering={pageNumbering}
+                      totalPages={pdfInfo?.pageCount || 1}
                       onSelectPlacement={(id) => setActivePlacementId(id)}
                       onUpdatePlacement={handleUpdatePlacement}
                       onAddPlacementAtCoords={handleAddPlacementAtCoords}
@@ -866,6 +913,10 @@ export default function App() {
                       onApplyToAllPages={handleApplyToAllPages}
                       onRotatePage={(delta) => handleRotatePdf(currentPageIndex + 1, delta)}
                       onRotateAllPages={(delta) => handleRotatePdf('all', delta)}
+                      onOpenPageNumberModal={() => setIsPageNumberModalOpen(true)}
+                      onUpdatePageNumbering={(updates) =>
+                        setPageNumbering((prev) => ({ ...prev, ...updates }))
+                      }
                     />
                   </div>
                 ) : (
@@ -878,6 +929,7 @@ export default function App() {
                         placements={placements}
                         activePlacementId={activePlacementId}
                         signature={signature}
+                        pageNumbering={pageNumbering}
                         onSelectPlacement={(id) => setActivePlacementId(id)}
                         onUpdatePlacement={handleUpdatePlacement}
                         onAddPlacementToPage={handleAddPlacementToPage}
@@ -888,6 +940,7 @@ export default function App() {
                         }}
                         onRotatePage={(pageNum, delta) => handleRotatePdf(pageNum, delta)}
                         onRotateAllPages={(delta) => handleRotatePdf('all', delta)}
+                        onOpenPageNumberModal={() => setIsPageNumberModalOpen(true)}
                       />
                     )}
                   </div>
@@ -941,6 +994,27 @@ export default function App() {
                   <p className="text-[11px] text-slate-300">
                     350 MB ফাইল ৮০০ KB লৈ কম্প্ৰেছ কৰিব আৰু ২০০খন পৃষ্ঠাত চহী একেলগে এম্বেড হ'ব।
                   </p>
+
+                  {/* Page Numbers status badge */}
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsPageNumberModalOpen(true)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                        pageNumbering.enabled
+                          ? 'bg-purple-900/70 text-purple-200 border-purple-400/50 hover:bg-purple-900'
+                          : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-800'
+                      }`}
+                    >
+                      <Hash className="w-3.5 h-3.5 text-purple-400" />
+                      <span>
+                        পেজ নম্বৰিং:{' '}
+                        {pageNumbering.enabled
+                          ? `সক্ৰিয় (${pageNumbering.format} • ${pageNumbering.position})`
+                          : 'বন্ধ (+ পেজ নম্বৰ যোগ কৰক)'}
+                      </span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
@@ -1071,6 +1145,15 @@ export default function App() {
           }}
         />
       )}
+
+      {/* 4. PDF Page Numbering System Modal */}
+      <PageNumberingModal
+        isOpen={isPageNumberModalOpen}
+        onClose={() => setIsPageNumberModalOpen(false)}
+        options={pageNumbering}
+        onChangeOptions={setPageNumbering}
+        totalPages={pdfInfo?.pageCount || 1}
+      />
     </div>
   );
 }

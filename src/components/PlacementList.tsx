@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SignaturePlacement, PageInfo } from '../types';
+import { SignaturePlacement, PageInfo, PageNumberingOptions } from '../types';
 import {
   Copy,
   Trash2,
@@ -13,12 +13,14 @@ import {
   ClipboardPaste,
   Layers,
   Zap,
+  Hash,
 } from 'lucide-react';
 
 interface PlacementListProps {
   placements: SignaturePlacement[];
   pages: PageInfo[];
   activePlacementId: string | null;
+  pageNumbering?: PageNumberingOptions;
   onSelectPlacement: (id: string) => void;
   onUpdatePlacement: (id: string, updates: Partial<SignaturePlacement>) => void;
   onAddPlacement: (pageNumber?: number) => void;
@@ -27,12 +29,14 @@ interface PlacementListProps {
   onApplyToAllPages: (basePlacementId: string) => void;
   onApplyToLastPage: (basePlacementId: string) => void;
   onOpenBatchModal?: () => void;
+  onOpenPageNumberModal?: () => void;
 }
 
 export const PlacementList: React.FC<PlacementListProps> = ({
   placements,
   pages,
   activePlacementId,
+  pageNumbering,
   onSelectPlacement,
   onUpdatePlacement,
   onAddPlacement,
@@ -41,6 +45,7 @@ export const PlacementList: React.FC<PlacementListProps> = ({
   onApplyToAllPages,
   onApplyToLastPage,
   onOpenBatchModal,
+  onOpenPageNumberModal,
 }) => {
   const pageCount = pages.length;
   const [showAdvancedCoords, setShowAdvancedCoords] = useState<boolean>(false);
@@ -151,6 +156,60 @@ export const PlacementList: React.FC<PlacementListProps> = ({
           </button>
         </div>
       </div>
+
+      {/* PDF Page Numbering Quick Bar */}
+      {onOpenPageNumberModal && (
+        <div
+          onClick={onOpenPageNumberModal}
+          className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between shadow-2xs hover:shadow-xs ${
+            pageNumbering?.enabled
+              ? 'bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <div
+              className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                pageNumbering?.enabled
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              <Hash className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                <span>PDF পেজ নম্বৰিং (Page Numbers)</span>
+                {pageNumbering?.enabled ? (
+                  <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.2 rounded">
+                    সক্ৰিয় (Active)
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
+                    বন্ধ (Off)
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500">
+                {pageNumbering?.enabled
+                  ? `ফৰ্মেট: ${pageNumbering.format} • স্থান: ${
+                      pageNumbering.positionMode === 'manual_drag'
+                        ? 'কেনভাচত ড্ৰেগ (Manual Drag)'
+                        : pageNumbering.position
+                    }`
+                  : 'প্ৰতিটো পৃষ্ঠাত ১, ২, ৩ বা Page 1 of 200 বহুৱাবলৈ ক্লিক কৰক'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="px-2.5 py-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+          >
+            {pageNumbering?.enabled ? 'ছেটিংছ ⚙️' : '+ নম্বৰ যোগ কৰক'}
+          </button>
+        </div>
+      )}
 
       {/* Placements Cards */}
       <div className="space-y-2.5">

@@ -75,4 +75,42 @@ export interface BatchSigningConfig {
   height?: number;
 }
 
-export type MobileViewTab = 'document' | 'signature' | 'batch' | 'compress';
+export type PageNumberTargetScope = 'all' | 'custom_selection' | 'range' | 'odd' | 'even';
+
+export interface PageNumberingOptions {
+  enabled: boolean;
+  format:
+    | 'page_n_of_total'
+    | 'n_slash_total'
+    | 'dash_n_dash'
+    | 'page_n'
+    | 'just_n'
+    | 'assamese_page_n_of_total'
+    | 'assamese_just_n'
+    | 'custom';
+  customTemplate?: string;
+  positionMode: 'preset' | 'manual_drag';
+  position: 'bottom-center' | 'bottom-right' | 'bottom-left' | 'top-center' | 'top-right' | 'top-left';
+  // Manual drag coordinates (in visual points from top-left)
+  manualX?: number;
+  manualY?: number;
+  manualXPercent?: number; // 0-100%
+  manualYPercent?: number; // 0-100%
+
+  // Page targeting & manual selection
+  targetScope: PageNumberTargetScope;
+  selectedPages?: number[]; // list of specific 1-indexed pages e.g. [1, 2, 5, 8]
+  pageRangeText?: string; // e.g. "1-10, 15, 20-50"
+
+  startPage: number; // 1-indexed, default 1 (use 2 to skip cover page)
+  endPage?: number; // 1-indexed
+  startNumber: number; // default 1
+  fontSize: number; // pt, default 10
+  fontColor: string; // hex '#333333'
+  fontFamily: 'Helvetica' | 'TimesRoman' | 'Courier';
+  bottomMargin: number; // pt, default 25
+  sideMargin: number; // pt, default 35
+  includeBackgroundPill: boolean; // white semi-transparent rounded pill for readability
+}
+
+export type MobileViewTab = 'document' | 'signature' | 'batch' | 'compress' | 'page_no';
